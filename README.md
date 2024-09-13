@@ -1,0 +1,2 @@
+# manacurve
+Compute optimal curve
