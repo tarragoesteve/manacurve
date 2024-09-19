@@ -67,8 +67,6 @@ def probability(sequence: Sequence, Ks) -> float:
         # update deck information after turn
         for i, ki in enumerate(ks):
             Ks[ks_index[i]] -= ki
-        #print(turn, ks, ks_index, turn_conditioned_probability, total_probability)
-
     return total_probability
 
 # print(sequence.turns)
