@@ -4,6 +4,7 @@ from tqdm import tqdm
 from itertools import combinations_with_replacement
 import math
 import copy
+from scipy.stats import multivariate_hypergeom
 
 DECK_SIZE = 60
 MAXIMUM_MANA_VALUE = 4
@@ -58,25 +59,18 @@ def probability(sequence: Sequence, Ks) -> float:
                     else:
                         k_other = free_cards - sum(combination)
                         K_other = sum(Ks) - sum(Ks[i] for i in ks_index)
-                        numerator = 1
-                        for i, ki in enumerate(combination):
-                            Ki = Ks[ks_index[i]]
-                            numerator *= math.comb(Ki, ki)
-                        if k_other > 0 and K_other > 0:
-                            numerator *= math.comb(K_other, k_other)
-                        denominator = math.comb(sum(Ks), k_other + sum(combination))
-                        turn_conditioned_probability -= numerator/denominator
+                        combination_prob = multivariate_hypergeom.pmf(x=[i for i in combination]+[k_other], m=[Ks[i] for i in ks_index]+[K_other], n=free_cards)
+                        turn_conditioned_probability -= combination_prob
         total_probability *= turn_conditioned_probability
         # update unknown cards information after turn
         free_cards -= sum(ks)
         # update deck information after turn
         for i, ki in enumerate(ks):
             Ks[ks_index[i]] -= ki
-        print(turn, ks, ks_index, turn_conditioned_probability, total_probability)
+        #print(turn, ks, ks_index, turn_conditioned_probability, total_probability)
 
     return total_probability
 
-Ks = [20,25,0,10,5] # K0, K1, K2, K3, K4
 # print(sequence.turns)
 # print(probability(sequence, copy.deepcopy(Ks)))
 # print(sequence.impact)
@@ -89,7 +83,7 @@ Ks = [20,25,0,10,5] # K0, K1, K2, K3, K4
 # print("Will compute", len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))))
 
 sequence = Sequence(1, [[1, 0],[1, 1, 0], [3,0]])
-Ks = [30, 20, 0, 10, 0]
+Ks = [30, 10, 0, 20, 0]
 
 print("Ks",Ks)
 print("Seq",sequence.turns)
