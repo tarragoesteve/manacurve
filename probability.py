@@ -8,10 +8,9 @@ from scipy.stats import multivariate_hypergeom
 
 DECK_SIZE = 60
 MAXIMUM_MANA_VALUE = 4
-INITIAL_HAND_SIZE = 6
 
 class Sequence:
-    def __init__(self, impact = 0, turns = []) -> None:
+    def __init__(self, impact = 0.0, turns = []) -> None:
         self.impact = impact
         self.turns = turns
 
@@ -31,10 +30,10 @@ with open('sequences.csv', 'r', newline='') as csvfile:
         sequences.append(Sequence(impact, turns))
 
 
-def probability(sequence: Sequence, Ks) -> float:
+def probability(sequence: Sequence, Ks, initial_hand_size: int =  6) -> float:
     total_probability = 1.0
-    free_cards = INITIAL_HAND_SIZE
-    for turn in sequence.turns:
+    free_cards = initial_hand_size
+    for turn_number,turn in enumerate(sequence.turns):
         free_cards += 1 # draw of the turn
         turn_conditioned_probability = 1.0
         ks = []
@@ -52,16 +51,17 @@ def probability(sequence: Sequence, Ks) -> float:
                 turn_conditioned_probability = 0
             else:
                 # Generate the product of iterations
-                for combination in itertools.product(*[range(n+1) for n in ks]):
-                    if all([combination[i] >= ks[i] for i in range(len(combination))]):
-                        # This is the last combination and should be skipped as it is the first one to accomplish the restriction
+                for combination in itertools.product(*[range(min(free_cards+1,Ks[ks_index[i]]+1)) for i, _ in enumerate(ks)]):
+                    k_other = free_cards - sum(combination)
+                    K_other = sum(Ks) - sum(Ks[i] for i in ks_index)
+                    if all([combination[i] >= ks[i] for i, _ in enumerate(combination)]) or k_other < 0 or K_other < k_other:
+                        # This combination is passing the requirements or is impossible
                         pass
                     else:
-                        k_other = free_cards - sum(combination)
-                        K_other = sum(Ks) - sum(Ks[i] for i in ks_index)
                         combination_prob = multivariate_hypergeom.pmf(x=[i for i in combination]+[k_other], m=[Ks[i] for i in ks_index]+[K_other], n=free_cards)
                         turn_conditioned_probability -= combination_prob
         total_probability *= turn_conditioned_probability
+        #print("Turn", turn_number, "Conditioned", turn_conditioned_probability, "Total", total_probability, "Ks", Ks)
         # update unknown cards information after turn
         free_cards -= sum(ks)
         # update deck information after turn
@@ -69,34 +69,22 @@ def probability(sequence: Sequence, Ks) -> float:
             Ks[ks_index[i]] -= ki
     return total_probability
 
-# print(sequence.turns)
-# print(probability(sequence, copy.deepcopy(Ks)))
-# print(sequence.impact)
 
-# for sequence in sequences:
-#     print(sequence.impact, sequence.turns, probability(sequence, copy.deepcopy(Ks)))
-# score = sum([sequence.impact * probability(sequence, copy.deepcopy(Ks)) for sequence in sequences[71:72]])
-# print(score)
+#sequence = Sequence(100.0, [[1, 0], [2, 0], [3, 0], [4, 0]])
+# Ks =  [50, 3, 3, 3, 1]
+# probability(sequence, copy.deepcopy(Ks))
 
-# print("Will compute", len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))))
-
-sequence = Sequence(1, [[1, 0],[1, 1, 0], [3,0]])
-Ks = [30, 10, 0, 20, 0]
-
-print("Ks",Ks)
-print("Seq",sequence.turns)
-print("Prob", probability(sequence, copy.deepcopy(Ks)))
-
-# with open('curves.csv', 'w', newline='') as csvfile:
-#     writer = csv.writer(csvfile, delimiter=";")
-#     best_score = 0.0
-#     for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)):
-#         Ks = []
-#         for k in range(MAXIMUM_MANA_VALUE+1):            
-#             Ks.append(sum(1 for i in combination if i == k))
-#         #score = sum([sequence.impact * probability(sequence, copy.deepcopy(Ks)) for sequence in sequences])
-#         score = sequence.impact * probability(sequence, copy.deepcopy(Ks))
-#         writer.writerow(Ks + [score])
-#         if score > best_score:
-#             print("New best score found:", score, Ks)
-#             best_score = score
+print("Will compute", len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))))
+with open('curves.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile, delimiter=";")
+    best_score = 0.0
+    for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)):
+        Ks = []
+        for k in range(MAXIMUM_MANA_VALUE+1):            
+            Ks.append(sum(1 for i in combination if i == k))
+        score = sum([sequence.impact * probability(sequence, copy.deepcopy(Ks)) for sequence in sequences])
+        #score = sequence.impact * probability(sequence, copy.deepcopy(Ks))
+        writer.writerow(Ks + [score])
+        if score > best_score:
+            print("New best score found:", score, Ks)
+            best_score = score
