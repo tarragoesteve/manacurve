@@ -95,11 +95,12 @@ def probability(sequence: Sequence, Ks, initial_hand_size: int =  6) -> float:
 
 # print(list(non_valid_possible_combinations([1,2],[4,6], 5)))
 
-print("Will compute", len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))))
+total= len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)))
+print("Will compute", total)
 with open('curves.csv', 'w', newline='') as csvfile:
     writer = csv.writer(csvfile, delimiter=";")
     best_score = 0.0
-    for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)):
+    for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE), total=total):
         Ks = []
         for k in range(MAXIMUM_MANA_VALUE+1):            
             Ks.append(sum(1 for i in combination if i == k))
