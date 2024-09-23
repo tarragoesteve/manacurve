@@ -6,7 +6,7 @@ import math
 import copy
 from scipy.stats import multivariate_hypergeom
 
-DECK_SIZE = 60
+DECK_SIZE = 56
 MAXIMUM_MANA_VALUE = 4
 
 class Sequence:
@@ -29,6 +29,24 @@ with open('sequences.csv', 'r', newline='') as csvfile:
                 turns.append([])
         sequences.append(Sequence(impact, turns))
 
+def non_valid_possible_combinations(Ks, Cs, free_cards):
+    yield from recursive_auxiliar(0, [], True, 0, Ks, Cs, free_cards)
+    
+    
+def recursive_auxiliar(index, combination, is_valid, sum_combination, Ks, Cs, free_cards):
+    if index >= len(Ks):
+        if not is_valid:
+            yield combination
+    else:
+        up_to = min(Cs[index], free_cards - sum_combination)
+        for i in range(up_to+1):
+            yield from recursive_auxiliar(index+1,
+                                          combination + [i],
+                                          is_valid and i >= Ks[index],
+                                          sum_combination + i,
+                                          Ks,
+                                          Cs,
+                                          free_cards)
 
 def probability(sequence: Sequence, Ks, initial_hand_size: int =  6) -> float:
     total_probability = 1.0
@@ -51,11 +69,12 @@ def probability(sequence: Sequence, Ks, initial_hand_size: int =  6) -> float:
                 turn_conditioned_probability = 0
             else:
                 # Generate the product of iterations
-                for combination in itertools.product(*[range(min(free_cards+1,Ks[ks_index[i]]+1)) for i, _ in enumerate(ks)]):
+                for combination in non_valid_possible_combinations(ks, Ks, free_cards):
                     k_other = free_cards - sum(combination)
                     K_other = sum(Ks) - sum(Ks[i] for i in ks_index)
-                    if all([combination[i] >= ks[i] for i, _ in enumerate(combination)]) or k_other < 0 or K_other < k_other:
+                    if K_other < k_other:
                         # This combination is passing the requirements or is impossible
+                        # print("Epa!")
                         pass
                     else:
                         combination_prob = multivariate_hypergeom.pmf(x=[i for i in combination]+[k_other], m=[Ks[i] for i in ks_index]+[K_other], n=free_cards)
@@ -70,9 +89,11 @@ def probability(sequence: Sequence, Ks, initial_hand_size: int =  6) -> float:
     return total_probability
 
 
-#sequence = Sequence(100.0, [[1, 0], [2, 0], [3, 0], [4, 0]])
+# sequence = Sequence(100.0, [[1, 0], [2, 0], [3, 0], [4, 0]])
 # Ks =  [50, 3, 3, 3, 1]
 # probability(sequence, copy.deepcopy(Ks))
+
+# print(list(non_valid_possible_combinations([1,2],[4,6], 5)))
 
 print("Will compute", len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))))
 with open('curves.csv', 'w', newline='') as csvfile:
