@@ -5,8 +5,10 @@ from itertools import combinations_with_replacement
 import math
 import copy
 from scipy.stats import multivariate_hypergeom
+from enum import Enum
+import random
 
-DECK_SIZE = 56
+DECK_SIZE = 40
 MAXIMUM_MANA_VALUE = 4
 
 class Sequence:
@@ -16,7 +18,7 @@ class Sequence:
 
 sequences = []
 # Parse input
-with open('sequences.csv', 'r', newline='') as csvfile:
+with open('sequences_4turns.csv', 'r', newline='') as csvfile:
     reader = csv.reader(csvfile, delimiter=";")
     for row in reader:
         impact = float(row[0])
@@ -89,24 +91,70 @@ def probability(sequence: Sequence, Ks, initial_hand_size: int =  6) -> float:
     return total_probability
 
 
-# sequence = Sequence(100.0, [[1, 0], [2, 0], [3, 0], [4, 0]])
-# Ks =  [50, 3, 3, 3, 1]
-# probability(sequence, copy.deepcopy(Ks))
+class Strategy(Enum):
+    FULL_EXPLORATION = 0
+    HILL_CLIMBING = 1
+    MULTI_HILL_CLIMBING = 2
+    
+current_strategy = Strategy.MULTI_HILL_CLIMBING
 
-# print(list(non_valid_possible_combinations([1,2],[4,6], 5)))
-
-total= len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)))
+def hill_climbing(initial_combination, sequences):
+    best_score = 0
+    best_combination = initial_combination
+    keep_exploring = True
+    while keep_exploring:
+        keep_exploring = False
+        for i, _ in enumerate(best_combination):
+            for j, _ in enumerate(best_combination):
+                if i != j:
+                    combination = copy.deepcopy(best_combination)
+                    combination[j] += 1
+                    combination[i] -= 1
+                    if all([k >= 0 for k in combination]):
+                        score = sum([sequence.impact * probability(sequence, copy.deepcopy(combination)) for sequence in sequences])
+                        if score > best_score:
+                            best_score = score
+                            keep_exploring = True
+                            new_best_combination = combination
+        if keep_exploring:
+            best_combination = new_best_combination
+            print("New best score found:", score, best_combination)
+    return best_combination, best_score
+    
+total = len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)))
 print("Will compute", total)
 with open('curves.csv', 'w', newline='') as csvfile:
     writer = csv.writer(csvfile, delimiter=";")
     best_score = 0.0
-    for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE), total=total):
-        Ks = []
-        for k in range(MAXIMUM_MANA_VALUE+1):            
-            Ks.append(sum(1 for i in combination if i == k))
-        score = sum([sequence.impact * probability(sequence, copy.deepcopy(Ks)) for sequence in sequences])
-        #score = sequence.impact * probability(sequence, copy.deepcopy(Ks))
-        writer.writerow(Ks + [score])
-        if score > best_score:
-            print("New best score found:", score, Ks)
-            best_score = score
+    if current_strategy == Strategy.FULL_EXPLORATION:
+        for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE), total=total):
+            Ks = []
+            for k in range(MAXIMUM_MANA_VALUE+1):
+                Ks.append(sum(1 for i in combination if i == k))
+            score = sum([sequence.impact * probability(sequence, copy.deepcopy(Ks)) for sequence in sequences])
+            writer.writerow(Ks + [score])
+            if score > best_score:
+                print("New best score found:", score, Ks)
+                best_score = score
+    elif current_strategy == Strategy.HILL_CLIMBING:
+        # initial solution and loop variables
+        initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
+        initial_combination[1] = DECK_SIZE
+        hill_climbing(initial_combination, sequences)
+    elif current_strategy == Strategy.MULTI_HILL_CLIMBING:
+        best_score = 0
+        best_combination = []
+        possible_combinations = list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))
+        for _ in tqdm(range(10)):
+            selected = random.choice(possible_combinations)
+            Ks = []
+            for k in range(MAXIMUM_MANA_VALUE+1):
+                Ks.append(sum(1 for i in selected if i == k))
+            initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
+            initial_combination[1] = DECK_SIZE
+            combination, score = hill_climbing(Ks, sequences)
+            writer.writerow(best_combination + [best_score])
+            if score > best_score:
+                print("Better combination found:", best_combination, best_score)
+                best_score = score
+                best_combination = combination

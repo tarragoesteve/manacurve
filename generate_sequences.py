@@ -5,11 +5,7 @@ import copy
 
 MAXIMUM_MANA_VALUE = 4
 INITIAL_HAND_SIZE = 6
-FINAL_TURN = 4
-
-print("Hello")
-print(len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), INITIAL_HAND_SIZE + FINAL_TURN))))
-
+FINAL_TURN = 5
 
 def optimal_sequence(combination):
     lands = sum(1 for i in combination if i == 0)
@@ -64,8 +60,9 @@ def impact(mana_value):
 
 with open('sequences.csv', 'w', newline='') as csvfile:
     writer = csv.writer(csvfile, delimiter=";")
-    saved_combinations = {}    
-    for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), INITIAL_HAND_SIZE + FINAL_TURN)):
+    saved_combinations = {}
+    total = len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), INITIAL_HAND_SIZE + FINAL_TURN)))
+    for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), INITIAL_HAND_SIZE + FINAL_TURN), total=total):
         ks = []
         for k in range(MAXIMUM_MANA_VALUE+1):            
             ks.append(sum(1 for i in combination if i == k))
