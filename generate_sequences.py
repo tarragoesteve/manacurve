@@ -10,7 +10,7 @@ from enum import Enum
 
 MAXIMUM_MANA_VALUE = 4
 INITIAL_HAND_SIZE = 6
-FINAL_TURN = 4
+FINAL_TURN = 6
 DECK_SIZE = 60
 
 def sequence_impact(sequence):
@@ -75,7 +75,7 @@ class Node():
         self.impact = impact
         self.children = children
 
-def score_auxiliar(tree_sequence: Node, Cs, free_cards, node_probability):
+def score_auxiliar(tree_sequence: Node, Cs, free_cards, node_probability, minimum_probability = 0.0) -> float:
     turn_conditioned_probability = 1.0
     ks = [sum(1 for j in tree_sequence.turn if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
     ks_index = [i for i in range(MAXIMUM_MANA_VALUE+1) if ks[i] > 0]
@@ -92,16 +92,17 @@ def score_auxiliar(tree_sequence: Node, Cs, free_cards, node_probability):
             else:
                 combination_prob = multivariate_hypergeom.pmf(x=[i for i in combination]+[k_other], m=[Cs[i] for i in ks_index]+[K_other], n=free_cards)
                 turn_conditioned_probability -= combination_prob
-    if turn_conditioned_probability != 0:
-        node_probability *= turn_conditioned_probability
+    node_probability *= turn_conditioned_probability
+    yield node_probability * tree_sequence.impact
+    if node_probability > minimum_probability:
+        # continue exploring childs only if they have a significant probability
         #print("Turn", tree_sequence.turn, "Probability", node_probability, "Impact", tree_sequence.impact)
-        yield node_probability * tree_sequence.impact
         for child in tree_sequence.children:
             yield from score_auxiliar(child, [c - k for k, c in zip(ks, Cs)], free_cards - sum(ks) + 1, node_probability)        
 
 
-def score(tree_sequence: Node, Cs) -> float:
-    return sum(score_auxiliar(tree_sequence, Cs, INITIAL_HAND_SIZE, 1.0))
+def score(tree_sequence: Node, Cs, minimum_probability = 0.0) -> float:
+    return sum(score_auxiliar(tree_sequence, Cs, INITIAL_HAND_SIZE, 1.0, minimum_probability))
     
     
 
@@ -162,26 +163,32 @@ def hill_climbing(initial_combination, root_node):
     best_score = 0
     best_combination = initial_combination
     keep_exploring = True
+    minimum_probabilities = [0.8, 0.3, 0.05, 0.01]
+    resolution_index = 0
+    last_direction = (0, 1)
     while keep_exploring:
         keep_exploring = False
-        yield best_combination, best_score
-        for i, _ in enumerate(best_combination):
-            for j, _ in enumerate(best_combination):
-                if i != j:
-                    combination = copy.deepcopy(best_combination)
-                    combination[j] += 1
-                    combination[i] -= 1
-                    if all([k >= 0 for k in combination]):
-                        combination_score = score(root_node, combination)
-                        if combination_score > best_score:
-                            best_score = combination_score
-                            keep_exploring = True
-                            new_best_combination = combination
+        for (i, j) in tqdm([last_direction]+[(i,j) for j in range(len(best_combination)) for i in range(len(best_combination)) if i!=j]):
+            combination = copy.deepcopy(best_combination)
+            combination[j] += 1
+            combination[i] -= 1
+            if all([k >= 0 for k in combination]):
+                combination_score = score(root_node, combination, minimum_probabilities[resolution_index])
+                if combination_score > best_score:
+                    last_direction = (i, j)
+                    best_score = combination_score
+                    keep_exploring = True
+                    new_best_combination = combination
+                    break
         if keep_exploring:
             best_combination = new_best_combination
-            #print("[hill_climbing] Better score found:", best_score, best_combination)
+            yield best_combination, best_score
+        if not keep_exploring and resolution_index + 1 < len(minimum_probabilities):
+            keep_exploring = True
+            resolution_index += 1
+            print("Increasing resolution index to", resolution_index)
     
-current_strategy = Strategy.HILL_CLIMBING
+current_strategy = Strategy.MULTI_HILL_CLIMBING
 
 print("Selected strategy", current_strategy)
 
@@ -194,7 +201,7 @@ with open('curves.csv', 'w', newline='') as csvfile:
                                 total=len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)))):
             Ks = [sum(1 for j in combination if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
             combination_score = score(root_node, Ks)
-            writer.writerow(Ks + [combination_score])
+            writer.writerow([combination_score] + Ks)
             if combination_score > best_score:
                 print("[FULL_EXPLORATION] Better score found:", combination_score, Ks)
                 best_score = combination_score
@@ -206,9 +213,9 @@ with open('curves.csv', 'w', newline='') as csvfile:
             if combination_score > best_score:
                 #print("[HILL_CLIMBING] Better score found:", combination_score, combination)
                 best_score = combination_score
-                writer.writerow(combination + [combination_score])
+                writer.writerow([combination_score] + combination)
+                csvfile.flush()
     elif current_strategy == Strategy.MULTI_HILL_CLIMBING:
-        best_score = 0
         possible_combinations = list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))
         for _ in tqdm(range(10)):
             selected = random.choice(possible_combinations)
@@ -217,4 +224,5 @@ with open('curves.csv', 'w', newline='') as csvfile:
                 if combination_score > best_score:
                     #print("[MULTI_HILL_CLIMBING] Better score found:", combination_score, combination)
                     best_score = combination_score
-                    writer.writerow(combination + [combination_score])
+                    writer.writerow([combination_score]+ combination)
+                    csvfile.flush()
