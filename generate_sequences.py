@@ -1,17 +1,26 @@
 from itertools import combinations_with_replacement, count, permutations
+from scipy.stats import multivariate_hypergeom
 from tqdm import tqdm
 import csv
 import copy
+import random
+from enum import Enum
+
+
 
 MAXIMUM_MANA_VALUE = 4
 INITIAL_HAND_SIZE = 6
-FINAL_TURN = 5
+FINAL_TURN = 4
+DECK_SIZE = 60
 
 def sequence_impact(sequence):
     total = 0.0
     for turn in sequence:
         total += sum([impact(i) for i in turn])
     return total
+
+def turn_impact(turn):
+    return sum([impact(i) for i in turn])
         
 def sequence_without_lands(sequence):
     ret = []
@@ -27,19 +36,75 @@ def impact(mana_value):
 
 
 def possible_sequences():
-    yield from recursive_auxiliar(0, 0, [], INITIAL_HAND_SIZE+1)
+    yield from possible_sequences_auxiliar(0, 0, [], INITIAL_HAND_SIZE+1)
 
-def recursive_auxiliar(turn, landrops, current_sequence, remaining_cards):
+def possible_sequences_auxiliar(turn, landrops, current_sequence, remaining_cards):
     if turn == FINAL_TURN:
         yield current_sequence
     else:
         # case we do not play land
         for turn_sequence in possible_turn([], landrops, remaining_cards):
-            yield from recursive_auxiliar(turn + 1, landrops, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
+            yield from possible_sequences_auxiliar(turn + 1, landrops, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
         # case we play a land
         for turn_sequence in possible_turn([0], landrops + 1, remaining_cards-1):
-            yield from recursive_auxiliar(turn + 1, landrops + 1, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
+            yield from possible_sequences_auxiliar(turn + 1, landrops + 1, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
     
+
+def non_valid_possible_combinations(Ks, Cs, free_cards):
+    yield from recursive_auxiliar(0, [], True, 0, Ks, Cs, free_cards)
+    
+    
+def recursive_auxiliar(index, combination, is_valid, sum_combination, Ks, Cs, free_cards):
+    if index >= len(Ks):
+        if not is_valid:
+            yield combination
+    else:
+        up_to = min(Cs[index], free_cards - sum_combination)
+        for i in range(up_to+1):
+            yield from recursive_auxiliar(index+1,
+                                          combination + [i],
+                                          is_valid and i >= Ks[index],
+                                          sum_combination + i,
+                                          Ks,
+                                          Cs,
+                                          free_cards)
+
+class Node():
+    def __init__(self, turn = [], impact = 0.0, children = []) -> None:
+        self.turn = turn
+        self.impact = impact
+        self.children = children
+
+def score_auxiliar(tree_sequence: Node, Cs, free_cards, node_probability):
+    turn_conditioned_probability = 1.0
+    ks = [sum(1 for j in tree_sequence.turn if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
+    ks_index = [i for i in range(MAXIMUM_MANA_VALUE+1) if ks[i] > 0]
+    ks_values = [ks[i] for i in ks_index]
+    if any([k > c for k, c in zip(ks, Cs)]) or sum(ks) > free_cards:
+        turn_conditioned_probability = 0
+    else:
+        for combination in non_valid_possible_combinations(ks_values, [Cs[i] for i in ks_index], free_cards):
+            k_other = free_cards - sum(combination)
+            K_other = sum(Cs) - sum(Cs[i] for i in ks_index)
+            if K_other < k_other:
+                # This combination is not possible
+                pass
+            else:
+                combination_prob = multivariate_hypergeom.pmf(x=[i for i in combination]+[k_other], m=[Cs[i] for i in ks_index]+[K_other], n=free_cards)
+                turn_conditioned_probability -= combination_prob
+    if turn_conditioned_probability != 0:
+        node_probability *= turn_conditioned_probability
+        #print("Turn", tree_sequence.turn, "Probability", node_probability, "Impact", tree_sequence.impact)
+        yield node_probability * tree_sequence.impact
+        for child in tree_sequence.children:
+            yield from score_auxiliar(child, [c - k for k, c in zip(ks, Cs)], free_cards - sum(ks) + 1, node_probability)        
+
+
+def score(tree_sequence: Node, Cs) -> float:
+    return sum(score_auxiliar(tree_sequence, Cs, INITIAL_HAND_SIZE, 1.0))
+    
+    
+
 def possible_turn(turn, available_mana, remaining_cards):
     yield turn
     if remaining_cards > 0 and available_mana > 0:
@@ -53,26 +118,103 @@ def possible_turn(turn, available_mana, remaining_cards):
         
 
 
-with open('sequences.csv', 'w', newline='') as csvfile:
-    writer = csv.writer(csvfile, delimiter=";")
-    saved_combinations = {}
-    for sequence in tqdm(possible_sequences()):
-        if sequence_impact(sequence) > 0:
-            if str(sequence_without_lands(sequence)) not in saved_combinations:
+saved_combinations = {}
+possible = 0
+print("Exploring all possible sequences")
+for sequence in tqdm(possible_sequences()):
+    possible += 1
+    if sequence_impact(sequence) > 0:
+        if str(sequence_without_lands(sequence)) not in saved_combinations:
+            saved_combinations[str(sequence_without_lands(sequence))] = sequence
+        else:
+            if len(sequence) < len(saved_combinations[str(sequence_without_lands(sequence))]):
+                # shortest combination == useless lands
                 saved_combinations[str(sequence_without_lands(sequence))] = sequence
-            else:
-                if len(sequence) < len(saved_combinations[str(sequence_without_lands(sequence))]):
-                    # shortest combination == useless lands
-                    saved_combinations[str(sequence_without_lands(sequence))] = sequence
-                elif len(sequence) == len(saved_combinations[str(sequence_without_lands(sequence))]):
-                    for turn_a, turn_b in zip(sequence, saved_combinations[str(sequence_without_lands(sequence))]):
-                        # we prefer to play lands in the latest turns
-                        if len(turn_a) < len(turn_b):
-                            saved_combinations[str(sequence_without_lands(sequence))] = sequence
-                            break
-                        elif len(turn_a) > len(turn_b):
-                            break
-    for sequence in saved_combinations.values():
+            elif len(sequence) == len(saved_combinations[str(sequence_without_lands(sequence))]):
+                for turn_a, turn_b in zip(sequence, saved_combinations[str(sequence_without_lands(sequence))]):
+                    # we prefer to play lands in the latest turns
+                    if len(turn_a) < len(turn_b):
+                        saved_combinations[str(sequence_without_lands(sequence))] = sequence
+                        break
+                    elif len(turn_a) > len(turn_b):
+                        break
+                    
+print("Non-redudant", len(saved_combinations), "out of", possible)
+print("Generating tree")
+with open('sequences.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile, delimiter=";")  
+    root_node = Node()
+    for sequence in tqdm(saved_combinations.values()):
+        current_node = root_node
         writer.writerow([sequence_impact(sequence)] + sequence)
+        for turn in sequence:
+            if turn not in [child.turn for child in current_node.children]:
+                current_node.children.append(Node(turn, turn_impact(turn), [])) # consider only turn impact
+            current_node = current_node.children[[child.turn for child in current_node.children].index(turn)]
 
+class Strategy(Enum):
+    FULL_EXPLORATION = 0
+    HILL_CLIMBING = 1
+    MULTI_HILL_CLIMBING = 2
+    
 
+def hill_climbing(initial_combination, root_node):
+    best_score = 0
+    best_combination = initial_combination
+    keep_exploring = True
+    while keep_exploring:
+        keep_exploring = False
+        yield best_combination, best_score
+        for i, _ in enumerate(best_combination):
+            for j, _ in enumerate(best_combination):
+                if i != j:
+                    combination = copy.deepcopy(best_combination)
+                    combination[j] += 1
+                    combination[i] -= 1
+                    if all([k >= 0 for k in combination]):
+                        combination_score = score(root_node, combination)
+                        if combination_score > best_score:
+                            best_score = combination_score
+                            keep_exploring = True
+                            new_best_combination = combination
+        if keep_exploring:
+            best_combination = new_best_combination
+            #print("[hill_climbing] Better score found:", best_score, best_combination)
+    
+current_strategy = Strategy.HILL_CLIMBING
+
+print("Selected strategy", current_strategy)
+
+saved_curves = {}
+with open('curves.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile, delimiter=";")
+    best_score = 0.0
+    if current_strategy == Strategy.FULL_EXPLORATION:
+        for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE),
+                                total=len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)))):
+            Ks = [sum(1 for j in combination if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
+            combination_score = score(root_node, Ks)
+            writer.writerow(Ks + [combination_score])
+            if combination_score > best_score:
+                print("[FULL_EXPLORATION] Better score found:", combination_score, Ks)
+                best_score = combination_score
+    elif current_strategy == Strategy.HILL_CLIMBING:
+        # initial solution and loop variables
+        initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
+        initial_combination[1] = DECK_SIZE
+        for combination, combination_score in tqdm(hill_climbing(initial_combination, root_node)):
+            if combination_score > best_score:
+                #print("[HILL_CLIMBING] Better score found:", combination_score, combination)
+                best_score = combination_score
+                writer.writerow(combination + [combination_score])
+    elif current_strategy == Strategy.MULTI_HILL_CLIMBING:
+        best_score = 0
+        possible_combinations = list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))
+        for _ in tqdm(range(10)):
+            selected = random.choice(possible_combinations)
+            Ks = [sum(1 for j in selected if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
+            for combination, combination_score in tqdm(hill_climbing(Ks, root_node)):
+                if combination_score > best_score:
+                    #print("[MULTI_HILL_CLIMBING] Better score found:", combination_score, combination)
+                    best_score = combination_score
+                    writer.writerow(combination + [combination_score])
