@@ -8,7 +8,7 @@ from scipy.stats import multivariate_hypergeom
 from enum import Enum
 import random
 
-DECK_SIZE = 40
+DECK_SIZE = 60
 MAXIMUM_MANA_VALUE = 4
 
 class Sequence:
@@ -18,7 +18,7 @@ class Sequence:
 
 sequences = []
 # Parse input
-with open('sequences_4turns.csv', 'r', newline='') as csvfile:
+with open('sequences.csv', 'r', newline='') as csvfile:
     reader = csv.reader(csvfile, delimiter=";")
     for row in reader:
         impact = float(row[0])
@@ -118,7 +118,7 @@ def hill_climbing(initial_combination, sequences):
                             new_best_combination = combination
         if keep_exploring:
             best_combination = new_best_combination
-            print("New best score found:", score, best_combination)
+            print("New best score found:", best_score, best_combination)
     return best_combination, best_score
     
 total = len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)))
@@ -150,8 +150,6 @@ with open('curves.csv', 'w', newline='') as csvfile:
             Ks = []
             for k in range(MAXIMUM_MANA_VALUE+1):
                 Ks.append(sum(1 for i in selected if i == k))
-            initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
-            initial_combination[1] = DECK_SIZE
             combination, score = hill_climbing(Ks, sequences)
             writer.writerow(best_combination + [best_score])
             if score > best_score:
