@@ -5,40 +5,98 @@ import csv
 import copy
 import random
 from enum import Enum
+from typing import List
 
 
+
+class Strategy(Enum):
+    FULL_EXPLORATION = 0
+    HILL_CLIMBING = 1
+    MULTI_HILL_CLIMBING = 2
+    SINGLE = 3
+    NOTHING = 4
 
 MAXIMUM_MANA_VALUE = 4
-INITIAL_HAND_SIZE = 6
-FINAL_TURN = 6
+INITIAL_HAND_SIZE = 7
+FINAL_TURN = 5
 DECK_SIZE = 60
+MAXIMUM_NUMBER_SEQUENCES = 500
+STRATEGY = Strategy.MULTI_HILL_CLIMBING
 
-def sequence_impact(sequence):
+
+def sequence_impact(sequence: List[List[int]]) -> float:
+    """Given a sequence computes the expected impact in a game
+
+    Args:
+        sequence (List[List[int]]): for each turn what cards have been played
+
+    Returns:
+        float: expected impact
+    """
     total = 0.0
     for turn in sequence:
         total += sum([impact(i) for i in turn])
     return total
 
-def turn_impact(turn):
+def turn_impact(turn : List[int]) ->  float:
+    """Given a turn computes the impact in a game
+
+    Args:
+        turn (List[int]): cards played in a turn
+
+    Returns:
+        float: impact
+    """
     return sum([impact(i) for i in turn])
         
-def sequence_without_lands(sequence):
+def sequence_without_lands(sequence: List[List[int]]) -> List[List[int]]:
+    """Given a sequence removes lands
+
+    Args:
+        sequence (List[List[int]]): 
+
+    Returns:
+        List[List[int]]: 
+    """
     ret = []
     for turn in sequence:
         ret.append([i for i in turn if i != 0])
     return ret
         
 
-def impact(mana_value):
+def impact(mana_value: int) -> float:
+    """Given a card mana value computes the impact in a game
+    """
     if mana_value == 0:
         return 0
-    return mana_value+1.5
+    elif mana_value == 1:
+        return mana_value + 1/0.95173
+    elif mana_value == 2:
+        return mana_value + 1/0.8241
+    elif mana_value == 3:
+        return mana_value + 1/0.63784
+    elif mana_value == 4:
+        return mana_value + 1/0.44051
+    return mana_value+1.0
 
 
 def possible_sequences():
-    yield from possible_sequences_auxiliar(0, 0, [], INITIAL_HAND_SIZE+1)
+    """Generates all possible sequences of turns"""
+    yield from possible_sequences_auxiliar(0, 0, [], INITIAL_HAND_SIZE)
 
-def possible_sequences_auxiliar(turn, landrops, current_sequence, remaining_cards):
+def possible_sequences_auxiliar(turn: int, landrops: int,
+                                current_sequence: List[List[int]], remaining_cards: int):
+    """Generates all possible sequences of turns
+
+    Args:
+        turn (int): 
+        landrops (int): 
+        current_sequence (List[List[int]]): 
+        remaining_cards (int): 
+
+    Yields:
+        List[List[int]]: sequence of turns
+    """
     if turn == FINAL_TURN:
         yield current_sequence
     else:
@@ -50,32 +108,44 @@ def possible_sequences_auxiliar(turn, landrops, current_sequence, remaining_card
             yield from possible_sequences_auxiliar(turn + 1, landrops + 1, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
     
 
-def non_valid_possible_combinations(Ks, Cs, free_cards):
-    yield from recursive_auxiliar(0, [], True, 0, Ks, Cs, free_cards)
+def non_valid_possible_combinations(Ks: List[int], Cs: List[int], free_cards: int):
+    """Returns all the possible combinations that are not valid
+
+    Args:
+        Ks (List[int]): Minim number of each k to be a valid restriction
+        Cs (List[int]): Maximum number of k that are available
+        free_cards (int): Number of cards that can be played
+
+    Yields:
+        List[int]: combination 
+    """
+    yield from non_valid_possible_combinations_aux(0, [], True, Ks, Cs, free_cards)
     
     
-def recursive_auxiliar(index, combination, is_valid, sum_combination, Ks, Cs, free_cards):
+def non_valid_possible_combinations_aux(index: int, combination: List[int],
+                                        is_valid: bool,
+                                        Ks: List[int], Cs: List[int], free_cards: int):
     if index >= len(Ks):
         if not is_valid:
             yield combination
     else:
-        up_to = min(Cs[index], free_cards - sum_combination)
+        up_to = min(Cs[index], free_cards)
         for i in range(up_to+1):
-            yield from recursive_auxiliar(index+1,
+            yield from non_valid_possible_combinations_aux(index+1,
                                           combination + [i],
                                           is_valid and i >= Ks[index],
-                                          sum_combination + i,
                                           Ks,
                                           Cs,
-                                          free_cards)
+                                          free_cards - i)
 
 class Node():
-    def __init__(self, turn = [], impact = 0.0, children = []) -> None:
+    def __init__(self, turn = [], sequence = [], impact = 0.0, children = []) -> None:
         self.turn = turn
+        self.sequence = sequence
         self.impact = impact
         self.children = children
 
-def score_auxiliar(tree_sequence: Node, Cs, free_cards, node_probability, minimum_probability = 0.0) -> float:
+def score_auxiliar(tree_sequence: Node, Cs: List[int], free_cards: int, node_probability, minimum_probability = 0.0):
     turn_conditioned_probability = 1.0
     ks = [sum(1 for j in tree_sequence.turn if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
     ks_index = [i for i in range(MAXIMUM_MANA_VALUE+1) if ks[i] > 0]
@@ -93,16 +163,17 @@ def score_auxiliar(tree_sequence: Node, Cs, free_cards, node_probability, minimu
                 combination_prob = multivariate_hypergeom.pmf(x=[i for i in combination]+[k_other], m=[Cs[i] for i in ks_index]+[K_other], n=free_cards)
                 turn_conditioned_probability -= combination_prob
     node_probability *= turn_conditioned_probability
-    yield node_probability * tree_sequence.impact
     if node_probability > minimum_probability:
         # continue exploring childs only if they have a significant probability
         #print("Turn", tree_sequence.turn, "Probability", node_probability, "Impact", tree_sequence.impact)
         for child in tree_sequence.children:
-            yield from score_auxiliar(child, [c - k for k, c in zip(ks, Cs)], free_cards - sum(ks) + 1, node_probability)        
+            yield from score_auxiliar(child, [c - k for k, c in zip(ks, Cs)], free_cards - sum(ks) + 1, node_probability, minimum_probability)
+        if len(tree_sequence.children) == 0:
+            yield node_probability, tree_sequence.impact, tree_sequence.sequence                  
 
 
-def score(tree_sequence: Node, Cs, minimum_probability = 0.0) -> float:
-    return sum(score_auxiliar(tree_sequence, Cs, INITIAL_HAND_SIZE, 1.0, minimum_probability))
+def score(tree_sequence: Node, Cs: List[int], minimum_probability = 0.0) -> float:
+    return sum([probability * impact for probability, impact, _ in score_auxiliar(tree_sequence, Cs, INITIAL_HAND_SIZE-1, 1.0, minimum_probability)])
     
     
 
@@ -141,88 +212,124 @@ for sequence in tqdm(possible_sequences()):
                         break
                     
 print("Non-redudant", len(saved_combinations), "out of", possible)
+sequence_score = [(sequence_impact(sequence), sequence) for sequence in saved_combinations.values()]
+sequence_score.sort(key=lambda x: x[0], reverse=True)
+with open('sequences.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile, delimiter=";")
+    for i in range(min(len(sequence_score), MAXIMUM_NUMBER_SEQUENCES)):
+        writer.writerow([sequence_score[i][0]] + sequence_score[i][1])
+    
 print("Generating tree")
 with open('sequences.csv', 'w', newline='') as csvfile:
     writer = csv.writer(csvfile, delimiter=";")  
     root_node = Node()
-    for sequence in tqdm(saved_combinations.values()):
+    for _ , sequence in tqdm(sequence_score[:min(len(saved_combinations), MAXIMUM_NUMBER_SEQUENCES)]):
         current_node = root_node
         writer.writerow([sequence_impact(sequence)] + sequence)
         for turn in sequence:
             if turn not in [child.turn for child in current_node.children]:
-                current_node.children.append(Node(turn, turn_impact(turn), [])) # consider only turn impact
+                current_node.children.append(Node(copy.deepcopy(turn), copy.deepcopy(sequence), current_node.impact + turn_impact(turn), [])) # consider only turn impact?
             current_node = current_node.children[[child.turn for child in current_node.children].index(turn)]
 
-class Strategy(Enum):
-    FULL_EXPLORATION = 0
-    HILL_CLIMBING = 1
-    MULTI_HILL_CLIMBING = 2
+
     
 
 def hill_climbing(initial_combination, root_node):
     best_score = 0
     best_combination = initial_combination
     keep_exploring = True
-    minimum_probabilities = [0.8, 0.3, 0.05, 0.01]
-    resolution_index = 0
     last_direction = (0, 1)
     while keep_exploring:
         keep_exploring = False
-        for (i, j) in tqdm([last_direction]+[(i,j) for j in range(len(best_combination)) for i in range(len(best_combination)) if i!=j]):
+        directions = [(i, j) for j in range(len(best_combination)) for i in range(len(best_combination)) if i!=j and (i, j) != last_direction]
+        random.shuffle(directions)
+        directions = [last_direction] + directions
+        for (i, j) in tqdm(directions):
             combination = copy.deepcopy(best_combination)
             combination[j] += 1
             combination[i] -= 1
             if all([k >= 0 for k in combination]):
-                combination_score = score(root_node, combination, minimum_probabilities[resolution_index])
+                combination_score = score(root_node, combination)
                 if combination_score > best_score:
                     last_direction = (i, j)
                     best_score = combination_score
                     keep_exploring = True
                     new_best_combination = combination
-                    break
+                    #break
         if keep_exploring:
             best_combination = new_best_combination
             yield best_combination, best_score
-        if not keep_exploring and resolution_index + 1 < len(minimum_probabilities):
-            keep_exploring = True
-            resolution_index += 1
-            print("Increasing resolution index to", resolution_index)
     
-current_strategy = Strategy.MULTI_HILL_CLIMBING
 
-print("Selected strategy", current_strategy)
+print("Selected strategy", STRATEGY)
 
-saved_curves = {}
-with open('curves.csv', 'w', newline='') as csvfile:
-    writer = csv.writer(csvfile, delimiter=";")
-    best_score = 0.0
-    if current_strategy == Strategy.FULL_EXPLORATION:
-        for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE),
-                                total=len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)))):
-            Ks = [sum(1 for j in combination if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
-            combination_score = score(root_node, Ks)
-            writer.writerow([combination_score] + Ks)
-            if combination_score > best_score:
-                print("[FULL_EXPLORATION] Better score found:", combination_score, Ks)
-                best_score = combination_score
-    elif current_strategy == Strategy.HILL_CLIMBING:
-        # initial solution and loop variables
-        initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
-        initial_combination[1] = DECK_SIZE
-        for combination, combination_score in tqdm(hill_climbing(initial_combination, root_node)):
-            if combination_score > best_score:
-                #print("[HILL_CLIMBING] Better score found:", combination_score, combination)
-                best_score = combination_score
-                writer.writerow([combination_score] + combination)
-                csvfile.flush()
-    elif current_strategy == Strategy.MULTI_HILL_CLIMBING:
-        possible_combinations = list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))
-        for _ in tqdm(range(10)):
-            selected = random.choice(possible_combinations)
-            Ks = [sum(1 for j in selected if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
-            for combination, combination_score in tqdm(hill_climbing(Ks, root_node)):
+if STRATEGY == Strategy.NOTHING:
+    print("Nothing to do")
+else:
+    with open('curves.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=";")
+        best_score = 0.0
+        best_combination = []
+        if STRATEGY == Strategy.FULL_EXPLORATION:
+            for combination in tqdm(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE),
+                                    total=len(list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE)))):
+                Ks = [sum(1 for j in combination if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
+                combination_score = score(root_node, Ks)
+                writer.writerow([combination_score] + Ks)
                 if combination_score > best_score:
-                    #print("[MULTI_HILL_CLIMBING] Better score found:", combination_score, combination)
+                    print("[FULL_EXPLORATION] Better score found:", combination_score, Ks)
                     best_score = combination_score
-                    writer.writerow([combination_score]+ combination)
+                    best_combination = Ks
+        elif STRATEGY == Strategy.HILL_CLIMBING:
+            # initial solution and loop variables
+            initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
+            initial_combination[1] = DECK_SIZE
+            initial_combination = [19,26,13,2,0]
+            for combination, combination_score in tqdm(hill_climbing(initial_combination, root_node)):
+                if combination_score > best_score:
+                    #print("[HILL_CLIMBING] Better score found:", combination_score, combination)
+                    best_score = combination_score
+                    best_combination = combination
+                    writer.writerow([combination_score] + combination)
                     csvfile.flush()
+        elif STRATEGY == Strategy.MULTI_HILL_CLIMBING:
+            cached_combinations = {}
+            possible_combinations = list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))
+            for _ in tqdm(range(10)):
+                selected = random.choice(possible_combinations)
+                Ks = [sum(1 for j in selected if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
+                for combination, combination_score in tqdm(hill_climbing(Ks, root_node)):
+                    if combination_score > best_score:
+                        #print("[MULTI_HILL_CLIMBING] Better score found:", combination_score, combination)
+                        best_score = combination_score
+                        best_combination = combination
+                        writer.writerow([combination_score]+ combination)
+                        csvfile.flush()
+                    if str(combination) not in cached_combinations:
+                        cached_combinations[str(combination)] = combination_score
+                    else:
+                        print("Stopping iteration, we arrived at", combination)
+                        break
+        elif STRATEGY == Strategy.SINGLE:
+            combination = [20,10,10,5,5]
+            minimum_probabilities = [0.8, 0.3, 0.05, 0.01, 0]
+            for p in tqdm(minimum_probabilities):
+                combination_score = score(root_node, combination, p)
+                print(combination_score)
+            best_combination = combination
+    with open('results.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=";")
+        for probability, sequence_impact, sequence in score_auxiliar(root_node, best_combination, INITIAL_HAND_SIZE-1, 1.0, 0.0):
+            print(probability, sequence_impact, sequence)
+            used_cards = sum([1 for turn in sequence for _ in turn])
+            writer.writerow([round(probability,4), sequence_impact, used_cards] + sequence)
+            
+        
+        
+    
+        
+
+
+            
+
+        
