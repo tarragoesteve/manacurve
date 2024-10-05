@@ -7,8 +7,6 @@ import random
 from enum import Enum
 from typing import List
 
-
-
 class Strategy(Enum):
     FULL_EXPLORATION = 0
     HILL_CLIMBING = 1
@@ -16,14 +14,18 @@ class Strategy(Enum):
     SINGLE = 3
     NOTHING = 4
 
-MAXIMUM_MANA_VALUE = 4
+MAXIMUM_MANA_VALUE = 3
 INITIAL_HAND_SIZE = 7
-FINAL_TURN = 5
+FINAL_TURN = 3
 DECK_SIZE = 60
-MAXIMUM_NUMBER_SEQUENCES = 500
+DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
+MAXIMUM_NUMBER_SEQUENCES = 100000
+OVERWRITE_SEQUENCES = True
 STRATEGY = Strategy.MULTI_HILL_CLIMBING
+MULTI_HILL_CLIMBING_ITERATIONS = 10
 
 
+# Impact Methods
 def sequence_impact(sequence: List[List[int]]) -> float:
     """Given a sequence computes the expected impact in a game
 
@@ -48,7 +50,30 @@ def turn_impact(turn : List[int]) ->  float:
         float: impact
     """
     return sum([impact(i) for i in turn])
+
+def impact(mana_value: int) -> float:
+    """Given a card mana value computes the impact in a game
+    """
+    if mana_value == 0:
+        return 0
+    #return mana_value + 1.5
+    if mana_value == 1:
+        return mana_value + 1/0.95173
+    elif mana_value == 2:
+        return mana_value + 1/0.8241
+    elif mana_value == 3:
+        return mana_value + 1/0.63784
+    elif mana_value == 4:
+        return mana_value + 1/0.44051
+    elif mana_value == 5:
+        return mana_value + 1/0.27278
+    elif mana_value == 6:
+        return mana_value + 1/0.15229
+    elif mana_value == 7:
+        return mana_value + 1/0.07698
+    return mana_value+1.5
         
+# Generating sequences methods
 def sequence_without_lands(sequence: List[List[int]]) -> List[List[int]]:
     """Given a sequence removes lands
 
@@ -63,28 +88,11 @@ def sequence_without_lands(sequence: List[List[int]]) -> List[List[int]]:
         ret.append([i for i in turn if i != 0])
     return ret
         
-
-def impact(mana_value: int) -> float:
-    """Given a card mana value computes the impact in a game
-    """
-    if mana_value == 0:
-        return 0
-    elif mana_value == 1:
-        return mana_value + 1/0.95173
-    elif mana_value == 2:
-        return mana_value + 1/0.8241
-    elif mana_value == 3:
-        return mana_value + 1/0.63784
-    elif mana_value == 4:
-        return mana_value + 1/0.44051
-    return mana_value+1.0
-
-
-def possible_sequences():
+def possible_sequences(minimum_sequence_impact = 0.0, maximum_impact_in_turn = 10.0):
     """Generates all possible sequences of turns"""
-    yield from possible_sequences_auxiliar(0, 0, [], INITIAL_HAND_SIZE)
+    yield from possible_sequences_auxiliar(0, 0, 0.0, minimum_sequence_impact, maximum_impact_in_turn, [], INITIAL_HAND_SIZE)
 
-def possible_sequences_auxiliar(turn: int, landrops: int,
+def possible_sequences_auxiliar(turn: int, landrops: int, accumulated_impact: float, minimum_sequence_impact: float, maximum_impact_in_turn: float,
                                 current_sequence: List[List[int]], remaining_cards: int):
     """Generates all possible sequences of turns
 
@@ -98,16 +106,46 @@ def possible_sequences_auxiliar(turn: int, landrops: int,
         List[List[int]]: sequence of turns
     """
     if turn == FINAL_TURN:
-        yield current_sequence
+        if accumulated_impact >= minimum_sequence_impact:
+            yield current_sequence
+    elif (FINAL_TURN - turn) * maximum_impact_in_turn + accumulated_impact < minimum_sequence_impact:
+        # we cannot reach the minimum impact
+        pass
     else:
         # case we do not play land
         for turn_sequence in possible_turn([], landrops, remaining_cards):
-            yield from possible_sequences_auxiliar(turn + 1, landrops, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
+            yield from possible_sequences_auxiliar(turn + 1, landrops,
+                                                   accumulated_impact + turn_impact(turn_sequence), minimum_sequence_impact, maximum_impact_in_turn,
+                                                   copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
         # case we play a land
         for turn_sequence in possible_turn([0], landrops + 1, remaining_cards-1):
-            yield from possible_sequences_auxiliar(turn + 1, landrops + 1, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
-    
+            yield from possible_sequences_auxiliar(turn + 1, landrops + 1,
+                                                   accumulated_impact + turn_impact(turn_sequence), minimum_sequence_impact, maximum_impact_in_turn,
+                                                   copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
 
+
+def possible_turn(turn : List[int], available_mana: int, remaining_cards: int):
+    """Generates all possible turns
+
+    Args:
+        turn (list[int]): The cards played so far in the turn
+        available_mana (int): Amount of mana remaining
+        remaining_cards (int): Amount of cards remaining
+
+    Yields:
+        _type_: _description_
+    """
+    yield turn
+    if remaining_cards > 0 and available_mana > 0:
+        #only ascending order
+        last_played = 1
+        if len(turn) > 0:
+            last_played = turn[-1]
+            last_played = max(1, last_played) # we cannot repeat landrops
+        for i in range(last_played, min(available_mana+1, MAXIMUM_MANA_VALUE+1)):
+            yield from possible_turn(copy.deepcopy(turn + [i]), available_mana - i, remaining_cards - 1)
+
+# Probability computation auxiliar method
 def non_valid_possible_combinations(Ks: List[int], Cs: List[int], free_cards: int):
     """Returns all the possible combinations that are not valid
 
@@ -145,6 +183,7 @@ class Node():
         self.impact = impact
         self.children = children
 
+# Score computation method
 def score_auxiliar(tree_sequence: Node, Cs: List[int], free_cards: int, node_probability, minimum_probability = 0.0):
     turn_conditioned_probability = 1.0
     ks = [sum(1 for j in tree_sequence.turn if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
@@ -174,65 +213,60 @@ def score_auxiliar(tree_sequence: Node, Cs: List[int], free_cards: int, node_pro
 
 def score(tree_sequence: Node, Cs: List[int], minimum_probability = 0.0) -> float:
     return sum([probability * impact for probability, impact, _ in score_auxiliar(tree_sequence, Cs, INITIAL_HAND_SIZE-1, 1.0, minimum_probability)])
-    
-    
-
-def possible_turn(turn, available_mana, remaining_cards):
-    yield turn
-    if remaining_cards > 0 and available_mana > 0:
-        #only ascending order
-        last_played = 1
-        if len(turn) > 0:
-            last_played = turn[-1]
-            last_played = max(1, last_played) # we cannot repeat landrops
-        for i in range(last_played, min(available_mana+1, MAXIMUM_MANA_VALUE+1)):
-            yield from possible_turn(copy.deepcopy(turn + [i]), available_mana - i, remaining_cards - 1)
-        
 
 
-saved_combinations = {}
-possible = 0
-print("Exploring all possible sequences")
-for sequence in tqdm(possible_sequences()):
-    possible += 1
-    if sequence_impact(sequence) > 0:
-        if str(sequence_without_lands(sequence)) not in saved_combinations:
-            saved_combinations[str(sequence_without_lands(sequence))] = sequence
-        else:
-            if len(sequence) < len(saved_combinations[str(sequence_without_lands(sequence))]):
-                # shortest combination == useless lands
+if OVERWRITE_SEQUENCES:
+    saved_combinations = {}
+    possible = 0
+    print("Exploring all possible sequences")
+    for sequence in tqdm(possible_sequences(0, 12.5)):
+        possible += 1
+        if sequence_impact(sequence) > 0:
+            if str(sequence_without_lands(sequence)) not in saved_combinations:
                 saved_combinations[str(sequence_without_lands(sequence))] = sequence
-            elif len(sequence) == len(saved_combinations[str(sequence_without_lands(sequence))]):
-                for turn_a, turn_b in zip(sequence, saved_combinations[str(sequence_without_lands(sequence))]):
-                    # we prefer to play lands in the latest turns
-                    if len(turn_a) < len(turn_b):
-                        saved_combinations[str(sequence_without_lands(sequence))] = sequence
-                        break
-                    elif len(turn_a) > len(turn_b):
-                        break
-                    
-print("Non-redudant", len(saved_combinations), "out of", possible)
-sequence_score = [(sequence_impact(sequence), sequence) for sequence in saved_combinations.values()]
-sequence_score.sort(key=lambda x: x[0], reverse=True)
-with open('sequences.csv', 'w', newline='') as csvfile:
-    writer = csv.writer(csvfile, delimiter=";")
-    for i in range(min(len(sequence_score), MAXIMUM_NUMBER_SEQUENCES)):
-        writer.writerow([sequence_score[i][0]] + sequence_score[i][1])
+            else:
+                if len(sequence) < len(saved_combinations[str(sequence_without_lands(sequence))]):
+                    # shortest combination == useless lands
+                    saved_combinations[str(sequence_without_lands(sequence))] = sequence
+                elif len(sequence) == len(saved_combinations[str(sequence_without_lands(sequence))]):
+                    for turn_a, turn_b in zip(sequence, saved_combinations[str(sequence_without_lands(sequence))]):
+                        # we prefer to play lands in the latest turns
+                        if len(turn_a) < len(turn_b):
+                            saved_combinations[str(sequence_without_lands(sequence))] = sequence
+                            break
+                        elif len(turn_a) > len(turn_b):
+                            break
+                        
+    print("Non-redudant", len(saved_combinations), "out of", possible)
+    sequence_score = [(sequence_impact(sequence), sequence) for sequence in saved_combinations.values()]
+    sequence_score.sort(key=lambda x: x[0], reverse=True)
+    with open('sequences.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=";")
+        for i in range(min(len(sequence_score), MAXIMUM_NUMBER_SEQUENCES)):
+            writer.writerow([sequence_score[i][0]] + sequence_score[i][1])
     
 print("Generating tree")
-with open('sequences.csv', 'w', newline='') as csvfile:
-    writer = csv.writer(csvfile, delimiter=";")  
+with open('sequences.csv', newline='') as csvfile:
+    number_of_nodes = 1
+    reader = csv.reader(csvfile, delimiter=";")  
     root_node = Node()
-    for _ , sequence in tqdm(sequence_score[:min(len(saved_combinations), MAXIMUM_NUMBER_SEQUENCES)]):
+    for row in tqdm(reader):
         current_node = root_node
-        writer.writerow([sequence_impact(sequence)] + sequence)
-        for turn in sequence:
-            if turn not in [child.turn for child in current_node.children]:
-                current_node.children.append(Node(copy.deepcopy(turn), copy.deepcopy(sequence), current_node.impact + turn_impact(turn), [])) # consider only turn impact?
-            current_node = current_node.children[[child.turn for child in current_node.children].index(turn)]
-
-
-    
+        sequence = []
+        sequence_imp = float(row[0])
+        for turn_string in row[1:]:
+            if len(sequence) < FINAL_TURN:
+                remove_brackets = turn_string[1:-1]
+                try:
+                    turn = [int(i) for i in remove_brackets.split(",")]
+                except:
+                    turn = []
+                sequence.append(turn)
+                if turn not in [child.turn for child in current_node.children]:
+                    number_of_nodes +=1
+                    current_node.children.append(Node(copy.deepcopy(turn), copy.deepcopy(sequence), sequence_imp, []))
+                current_node = current_node.children[[child.turn for child in current_node.children].index(turn)]
+    print("Number of nodes", number_of_nodes)
 
 def hill_climbing(initial_combination, root_node):
     best_score = 0
@@ -248,7 +282,7 @@ def hill_climbing(initial_combination, root_node):
             combination = copy.deepcopy(best_combination)
             combination[j] += 1
             combination[i] -= 1
-            if all([k >= 0 for k in combination]):
+            if all([k >= DECK_MINIMUMS[index] for index,k in enumerate(combination)]):
                 combination_score = score(root_node, combination)
                 if combination_score > best_score:
                     last_direction = (i, j)
@@ -295,7 +329,7 @@ else:
         elif STRATEGY == Strategy.MULTI_HILL_CLIMBING:
             cached_combinations = {}
             possible_combinations = list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))
-            for _ in tqdm(range(10)):
+            for _ in tqdm(range(MULTI_HILL_CLIMBING_ITERATIONS)):
                 selected = random.choice(possible_combinations)
                 Ks = [sum(1 for j in selected if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
                 for combination, combination_score in tqdm(hill_climbing(Ks, root_node)):
@@ -311,7 +345,7 @@ else:
                         print("Stopping iteration, we arrived at", combination)
                         break
         elif STRATEGY == Strategy.SINGLE:
-            combination = [20,10,10,5,5]
+            combination = [21,18,8,10,3]
             minimum_probabilities = [0.8, 0.3, 0.05, 0.01, 0]
             for p in tqdm(minimum_probabilities):
                 combination_score = score(root_node, combination, p)
@@ -319,10 +353,13 @@ else:
             best_combination = combination
     with open('results.csv', 'w', newline='') as csvfile:
         writer = csv.writer(csvfile, delimiter=";")
+        total_probability = 0
         for probability, sequence_impact, sequence in score_auxiliar(root_node, best_combination, INITIAL_HAND_SIZE-1, 1.0, 0.0):
-            print(probability, sequence_impact, sequence)
             used_cards = sum([1 for turn in sequence for _ in turn])
+            total_probability += probability
             writer.writerow([round(probability,4), sequence_impact, used_cards] + sequence)
+        print("Total probability", total_probability)
+
             
         
         
