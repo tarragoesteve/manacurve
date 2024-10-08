@@ -20,7 +20,7 @@ FINAL_TURN = 4
 DECK_SIZE = 60
 DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 MAXIMUM_NUMBER_SEQUENCES = 100000
-OVERWRITE_SEQUENCES = True
+OVERWRITE_SEQUENCES = False
 STRATEGY = Strategy.MULTI_HILL_CLIMBING
 MULTI_HILL_CLIMBING_ITERATIONS = 10
 
@@ -340,7 +340,7 @@ def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float)
     if any([k > c for k,c in zip(Ks, Cs)]):
         turn_probability = 0.0
     turn_probability *= multivariate_hypergeom.pmf(x=Ks, m=Cs, n=sum(Ks))
-    if turn_probability > 0:
+    if turn_probability > 0 and draw_tree.best_sequence.impact > 0:
         if len(draw_tree.children) == 0:
             yield probability, draw_tree.best_sequence.impact, draw_tree.best_sequence.sequence 
         else:
