@@ -14,13 +14,14 @@ class Strategy(Enum):
     SINGLE = 3
     NOTHING = 4
 
-MAXIMUM_MANA_VALUE = 4
+MAXIMUM_MANA_VALUE = 7
 INITIAL_HAND_SIZE = 7
-FINAL_TURN = 8
-DECK_SIZE = 60
+FINAL_TURN = 4
+DECK_SIZE = 56
+DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 MAXIMUM_NUMBER_SEQUENCES = 2000
-OVERWRITE_SEQUENCES = True
-STRATEGY = Strategy.NOTHING
+OVERWRITE_SEQUENCES = False
+STRATEGY = Strategy.MULTI_HILL_CLIMBING
 MULTI_HILL_CLIMBING_ITERATIONS = 10
 
 
@@ -55,7 +56,8 @@ def impact(mana_value: int) -> float:
     """
     if mana_value == 0:
         return 0
-    elif mana_value == 1:
+    #return mana_value + 1.5
+    if mana_value == 1:
         return mana_value + 1/0.95173
     elif mana_value == 2:
         return mana_value + 1/0.8241
@@ -86,11 +88,11 @@ def sequence_without_lands(sequence: List[List[int]]) -> List[List[int]]:
         ret.append([i for i in turn if i != 0])
     return ret
         
-def possible_sequences():
+def possible_sequences(minimum_sequence_impact = 0.0, maximum_impact_in_turn = 10.0):
     """Generates all possible sequences of turns"""
-    yield from possible_sequences_auxiliar(0, 0, [], INITIAL_HAND_SIZE)
+    yield from possible_sequences_auxiliar(0, 0, 0.0, minimum_sequence_impact, maximum_impact_in_turn, [], INITIAL_HAND_SIZE)
 
-def possible_sequences_auxiliar(turn: int, landrops: int,
+def possible_sequences_auxiliar(turn: int, landrops: int, accumulated_impact: float, minimum_sequence_impact: float, maximum_impact_in_turn: float,
                                 current_sequence: List[List[int]], remaining_cards: int):
     """Generates all possible sequences of turns
 
@@ -104,17 +106,25 @@ def possible_sequences_auxiliar(turn: int, landrops: int,
         List[List[int]]: sequence of turns
     """
     if turn == FINAL_TURN:
-        yield current_sequence
+        if accumulated_impact >= minimum_sequence_impact:
+            yield current_sequence
+    elif (FINAL_TURN - turn) * maximum_impact_in_turn + accumulated_impact < minimum_sequence_impact:
+        # we cannot reach the minimum impact
+        pass
     else:
         # case we do not play land
         for turn_sequence in possible_turn([], landrops, remaining_cards):
-            yield from possible_sequences_auxiliar(turn + 1, landrops, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
+            yield from possible_sequences_auxiliar(turn + 1, landrops,
+                                                   accumulated_impact + turn_impact(turn_sequence), minimum_sequence_impact, maximum_impact_in_turn,
+                                                   copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
         # case we play a land
         for turn_sequence in possible_turn([0], landrops + 1, remaining_cards-1):
-            yield from possible_sequences_auxiliar(turn + 1, landrops + 1, copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
+            yield from possible_sequences_auxiliar(turn + 1, landrops + 1,
+                                                   accumulated_impact + turn_impact(turn_sequence), minimum_sequence_impact, maximum_impact_in_turn,
+                                                   copy.deepcopy(current_sequence + [turn_sequence]), remaining_cards + 1 - len(turn_sequence))
 
 
-def possible_turn(turn : list[int], available_mana: int, remaining_cards: int):
+def possible_turn(turn : List[int], available_mana: int, remaining_cards: int):
     """Generates all possible turns
 
     Args:
@@ -209,7 +219,7 @@ if OVERWRITE_SEQUENCES:
     saved_combinations = {}
     possible = 0
     print("Exploring all possible sequences")
-    for sequence in tqdm(possible_sequences()):
+    for sequence in tqdm(possible_sequences(20, 12.5)):
         possible += 1
         if sequence_impact(sequence) > 0:
             if str(sequence_without_lands(sequence)) not in saved_combinations:
@@ -243,14 +253,18 @@ with open('sequences.csv', newline='') as csvfile:
     for row in tqdm(reader):
         current_node = root_node
         sequence = []
+        sequence_imp = float(row[0])
         for turn_string in row[1:]:
             if len(sequence) < FINAL_TURN:
                 remove_brackets = turn_string[1:-1]
-                turn = [int(i) for i in remove_brackets.split(",")]
+                try:
+                    turn = [int(i) for i in remove_brackets.split(",")]
+                except:
+                    turn = []
                 sequence.append(turn)
                 if turn not in [child.turn for child in current_node.children]:
                     number_of_nodes +=1
-                    current_node.children.append(Node(copy.deepcopy(turn), copy.deepcopy(sequence), current_node.impact + turn_impact(turn), []))
+                    current_node.children.append(Node(copy.deepcopy(turn), copy.deepcopy(sequence), sequence_imp, []))
                 current_node = current_node.children[[child.turn for child in current_node.children].index(turn)]
     print("Number of nodes", number_of_nodes)
 
@@ -268,7 +282,7 @@ def hill_climbing(initial_combination, root_node):
             combination = copy.deepcopy(best_combination)
             combination[j] += 1
             combination[i] -= 1
-            if all([k >= 0 for k in combination]):
+            if all([k >= DECK_MINIMUMS[index] for index,k in enumerate(combination)]):
                 combination_score = score(root_node, combination)
                 if combination_score > best_score:
                     last_direction = (i, j)
