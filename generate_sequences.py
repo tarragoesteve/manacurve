@@ -14,15 +14,16 @@ class Strategy(Enum):
     SINGLE = 3
     NOTHING = 4
 
-MAXIMUM_MANA_VALUE = 4
-INITIAL_HAND_SIZE = 7
+MAXIMUM_MANA_VALUE = 5
+INITIAL_HAND_SIZE = 6
 FINAL_TURN = 4
-DECK_SIZE = 60
+DECK_SIZE = 56
 DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
+DECK_MINIMUMS[5] = 6
 MAXIMUM_NUMBER_SEQUENCES = 100000
 OVERWRITE_SEQUENCES = False
-STRATEGY = Strategy.MULTI_HILL_CLIMBING
-MULTI_HILL_CLIMBING_ITERATIONS = 10
+STRATEGY = Strategy.HILL_CLIMBING
+MULTI_HILL_CLIMBING_ITERATIONS = 5
 
 
 # Impact Methods
@@ -282,7 +283,7 @@ with open('sequences.csv', newline='') as csvfile:
     print("Number of nodes", number_of_nodes)
 
 class DrawNode():
-    def __init__(self, draw = [], accumulated_draw = [], children = [], best_sequence = None) -> None:
+    def __init__(self, draw = [], accumulated_draw = [], children = [], best_sequence = None, probability = 0.0, expected_impact = 0.0) -> None:
         self.draw: List[int] = draw
         self.accumulated_draw: List[int] = accumulated_draw
         self.children: List[DrawNode] = children
@@ -290,6 +291,8 @@ class DrawNode():
             self.best_sequence: Node = Node([],[],0,[])
         else:
             self.best_sequence = best_sequence
+        self.probability = probability
+        self.expected_impact = expected_impact
 
 def add_draws_to_node(node : DrawNode, turns: int):
     if turns == 0:
@@ -299,20 +302,6 @@ def add_draws_to_node(node : DrawNode, turns: int):
             aux_node = DrawNode([i],node.accumulated_draw + [i], [])
             add_draws_to_node(aux_node, turns-1)
             node.children.append(copy.deepcopy(aux_node))
-
-def number_of_nodes(node: DrawNode):
-    if len(node.children) == 0:
-        return 1
-    else:
-        return sum([number_of_nodes(child) for child in node.children])
-
-def number_of_positive(node: DrawNode):
-    if len(node.children) == 0:
-        if node.best_sequence.impact > 0:
-            return 1
-        return 0 
-    else:
-        return sum([number_of_positive(child) for child in node.children])
 
 ### Generate draw tree
 draw_tree = DrawNode()
@@ -327,9 +316,8 @@ for initial_hand in tqdm(possible_initial_hands(INITIAL_HAND_SIZE,MAXIMUM_MANA_V
     add_draws_to_node(aux_node, FINAL_TURN)
     draw_tree.children.append(copy.deepcopy(aux_node))
 
-print("Number of nodes in draw tree", number_of_nodes(draw_tree))
 
-def new_score(draw_tree : DrawNode, Cs: List[int]):
+def new_score(draw_tree : DrawNode, Cs: List[int], mulligan_threshold = 0.0):
     return sum([probability * impact for probability, impact, _ in new_score_auxiliar(draw_tree, Cs, 1.0)])
 
 def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float):
@@ -339,14 +327,39 @@ def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float)
         Ks.append(sum([1 for card in draw_tree.draw if card == i]))
     if any([k > c for k,c in zip(Ks, Cs)]):
         turn_probability = 0.0
-    turn_probability *= multivariate_hypergeom.pmf(x=Ks, m=Cs, n=sum(Ks))
+    if sum(Ks) > 1:
+        turn_probability *= multivariate_hypergeom.pmf(x=Ks, m=Cs, n=sum(Ks))
+    elif len(draw_tree.draw) == 1:
+        turn_probability *= Cs[draw_tree.draw[0]] / sum(Cs)
+    else:
+        #draw is empty, initial state
+        pass
+
     if turn_probability > 0 and draw_tree.best_sequence.impact > 0:
+        draw_tree.probability = turn_probability
         if len(draw_tree.children) == 0:
-            yield probability, draw_tree.best_sequence.impact, draw_tree.best_sequence.sequence 
+            draw_tree.expected_impact = draw_tree.best_sequence.impact
+            yield turn_probability, draw_tree.best_sequence.impact, draw_tree.best_sequence.sequence 
         else:
             for child in draw_tree.children:
                 new_Cs = [c-k for k,c in zip(Ks, Cs)]
                 yield from new_score_auxiliar(child, new_Cs, turn_probability)
+                draw_tree.expected_impact += child.probability * child.expected_impact
+            draw_tree.expected_impact = draw_tree.expected_impact / draw_tree.probability
+
+def score_with_mulligan(draw_tree : DrawNode, mulligan_threshold = 0.0):
+    accumulated_probability = 0.0
+    accumulated_expected_impact = 0.0
+    for hand in draw_tree.children:
+        if hand.expected_impact > mulligan_threshold:
+            accumulated_expected_impact += hand.expected_impact * hand.probability
+            accumulated_probability += hand.probability
+    deck_expected_impact = accumulated_expected_impact / accumulated_probability
+    return deck_expected_impact, accumulated_probability
+
+
+
+
 
 
 def joint_draws_sequences(draw_tree: DrawNode, drawing_sequence : List[List[int]] ,sequence_tree: Node):
@@ -356,13 +369,14 @@ def joint_draws_sequences(draw_tree: DrawNode, drawing_sequence : List[List[int]
             draw_tree.best_sequence = fist_valid
         except StopIteration:
             draw_tree.best_sequence = Node([],[],0,[])
+        yield draw_tree.best_sequence.impact
         #get the first sequence that matches that draw
     else:
         best_sequence = Node([],[],0,[])
         for child in draw_tree.children:
             aux_drawing_sequence = copy.deepcopy(drawing_sequence)
             aux_drawing_sequence.append(draw_tree.draw)
-            joint_draws_sequences(child, aux_drawing_sequence, sequence_tree)
+            yield from joint_draws_sequences(child, aux_drawing_sequence, sequence_tree)
             if child.best_sequence.impact > best_sequence.impact:
                 best_sequence = child.best_sequence
         draw_tree.best_sequence = best_sequence
@@ -389,10 +403,18 @@ def get_valid_sequences(drawing_sequence : List[List[int]], remaining_cards: Lis
     
 
 ### Associate each node to a sequence
-joint_draws_sequences(draw_tree, [], sequence_tree)
-print(number_of_positive(draw_tree))
-print(new_score(draw_tree, [20,20,10,10]))
-def hill_climbing(initial_combination, draw_node):
+number_of_leaf = 0
+number_of_positive_leaf = 0
+total_impact = 0
+print("Associating draws and sequences...")
+for leaf_impact in tqdm(joint_draws_sequences(draw_tree, [], sequence_tree)):
+    number_of_leaf +=1
+    total_impact += leaf_impact
+    if leaf_impact > 0:
+        number_of_positive_leaf += 1
+print(number_of_positive_leaf,"/",number_of_leaf," positive/total leaf. Avg impact:", total_impact/number_of_leaf)
+
+def hill_climbing(initial_combination, draw_node, mulligan_draw_node):
     best_score = 0
     best_combination = initial_combination
     keep_exploring = True
@@ -407,6 +429,7 @@ def hill_climbing(initial_combination, draw_node):
             combination[j] += 1
             combination[i] -= 1
             if all([k >= DECK_MINIMUMS[index] for index,k in enumerate(combination)]):
+                mulligan_score = new_score(mulligan_draw_node, combination)
                 combination_score = new_score(draw_node, combination)
                 if combination_score > best_score:
                     last_direction = (i, j)
@@ -442,7 +465,7 @@ else:
             # initial solution and loop variables
             initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
             initial_combination[1] = DECK_SIZE
-            initial_combination = [19,26,13,2,0]
+            initial_combination = [25,7,6,6,6,6]
             for combination, combination_score in tqdm(hill_climbing(initial_combination, draw_tree)):
                 if combination_score > best_score:
                     #print("[HILL_CLIMBING] Better score found:", combination_score, combination)
@@ -478,10 +501,16 @@ else:
     with open('results.csv', 'w', newline='') as csvfile:
         writer = csv.writer(csvfile, delimiter=";")
         total_probability = 0
+        results = {}
+        recover_sequence = {}
         for probability, sequence_impact, sequence in new_score_auxiliar(draw_tree, best_combination, 1.0):
-            used_cards = sum([1 for turn in sequence for _ in turn])
+            if not str(sequence) in results:
+                results[str(sequence)] = 0.0
+                recover_sequence[str(sequence)] = sequence
+            results[str(sequence)] += probability
             total_probability += probability
-            writer.writerow([round(probability,8), sequence_impact, used_cards] + sequence)
+        for sequence_str, probability in results.items():
+            writer.writerow([round(probability,8)] + recover_sequence[sequence_str])
         print("Total probability", total_probability)
 
             
