@@ -14,16 +14,23 @@ class Strategy(Enum):
     SINGLE = 3
     NOTHING = 4
 
-MAXIMUM_MANA_VALUE = 5
-INITIAL_HAND_SIZE = 6
-FINAL_TURN = 4
-DECK_SIZE = 56
+MAXIMUM_MANA_VALUE = 4
+INITIAL_HAND_SIZE = 7
+FINAL_TURNS = [4, 5]
+TURN_WEIGHT = {4: 0.50,
+               5: 0.50}
+DECK_SIZE = 60
 DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
-DECK_MINIMUMS[5] = 6
-MAXIMUM_NUMBER_SEQUENCES = 100000
-OVERWRITE_SEQUENCES = False
-STRATEGY = Strategy.HILL_CLIMBING
-MULTI_HILL_CLIMBING_ITERATIONS = 5
+#DECK_MINIMUMS[5] = 6
+MAXIMUM_NUMBER_SEQUENCES = 10000
+OVERWRITE_SEQUENCES = True
+STRATEGY = Strategy.MULTI_HILL_CLIMBING
+initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
+initial_combination[0] = DECK_SIZE
+# for hill climbing
+#initial_combination = [22,5,10,9,4,6]
+MULTI_HILL_CLIMBING_ITERATIONS = 2
+MULLIGAN_THRESHOLD = .08
 
 
 # Impact Methods
@@ -106,10 +113,10 @@ def possible_sequences_auxiliar(turn: int, landrops: int, accumulated_impact: fl
     Yields:
         List[List[int]]: sequence of turns
     """
-    if turn == FINAL_TURN:
+    if turn == max(FINAL_TURNS):
         if accumulated_impact >= minimum_sequence_impact:
             yield current_sequence
-    elif (FINAL_TURN - turn) * maximum_impact_in_turn + accumulated_impact < minimum_sequence_impact:
+    elif (max(FINAL_TURNS) - turn) * maximum_impact_in_turn + accumulated_impact < minimum_sequence_impact:
         # we cannot reach the minimum impact
         pass
     else:
@@ -269,7 +276,7 @@ with open('sequences.csv', newline='') as csvfile:
         sequence = []
         sequence_imp = float(row[0])
         for turn_string in row[1:]:
-            if len(sequence) < FINAL_TURN:
+            if len(sequence) < max(FINAL_TURNS):
                 remove_brackets = turn_string[1:-1]
                 try:
                     turn = [int(i) for i in remove_brackets.split(",")]
@@ -280,10 +287,10 @@ with open('sequences.csv', newline='') as csvfile:
                     number_of_nodes +=1
                     current_node.children.append(Node(copy.deepcopy(turn), copy.deepcopy(sequence), sequence_imp, []))
                 current_node = current_node.children[[child.turn for child in current_node.children].index(turn)]
-    print("Number of nodes", number_of_nodes)
+    print("Number of nodes in sequence tree", number_of_nodes)
 
 class DrawNode():
-    def __init__(self, draw = [], accumulated_draw = [], children = [], best_sequence = None, probability = 0.0, expected_impact = 0.0) -> None:
+    def __init__(self, draw = [], accumulated_draw = [], children = [], best_sequence = None, probability = 0.0, expected_impact = {}) -> None:
         self.draw: List[int] = draw
         self.accumulated_draw: List[int] = accumulated_draw
         self.children: List[DrawNode] = children
@@ -303,24 +310,12 @@ def add_draws_to_node(node : DrawNode, turns: int):
             add_draws_to_node(aux_node, turns-1)
             node.children.append(copy.deepcopy(aux_node))
 
-### Generate draw tree
-draw_tree = DrawNode()
-print("Generating draw tree")
-for initial_hand in tqdm(possible_initial_hands(INITIAL_HAND_SIZE,MAXIMUM_MANA_VALUE),
-                         total=len(list(possible_initial_hands(INITIAL_HAND_SIZE,MAXIMUM_MANA_VALUE)))):
-    draw = []
-    for index, repetitions in enumerate(initial_hand):
-        for _ in range(repetitions):
-            draw.append(index)
-    aux_node = DrawNode(draw, draw, [])
-    add_draws_to_node(aux_node, FINAL_TURN)
-    draw_tree.children.append(copy.deepcopy(aux_node))
-
-
 def new_score(draw_tree : DrawNode, Cs: List[int], mulligan_threshold = 0.0):
-    return sum([probability * impact for probability, impact, _ in new_score_auxiliar(draw_tree, Cs, 1.0)])
+    for _ in new_score_auxiliar(draw_tree, Cs, 1.0, -1):
+        pass
+    return score_with_mulligan(draw_tree, mulligan_threshold, TURN_WEIGHT)
 
-def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float):
+def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float, current_turn: int):
     turn_probability = probability
     Ks = []
     for i in range(len(Cs)):
@@ -335,51 +330,68 @@ def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float)
         #draw is empty, initial state
         pass
 
+    draw_tree.probability = turn_probability
+    new_Cs = [c-k for k,c in zip(Ks, Cs)]
+    if len(new_Cs) != MAXIMUM_MANA_VALUE+1:
+        raise NameError("Incorrect Cs length")
     if turn_probability > 0 and draw_tree.best_sequence.impact > 0:
-        draw_tree.probability = turn_probability
-        if len(draw_tree.children) == 0:
-            draw_tree.expected_impact = draw_tree.best_sequence.impact
-            yield turn_probability, draw_tree.best_sequence.impact, draw_tree.best_sequence.sequence 
-        else:
+        if current_turn in FINAL_TURNS:
+            if current_turn == 3:
+                pass
+            draw_tree.expected_impact[current_turn] = draw_tree.best_sequence.impact
+            yield turn_probability, draw_tree.best_sequence.impact, draw_tree.best_sequence.sequence
+        for child in draw_tree.children:
+            yield from new_score_auxiliar(child, new_Cs, turn_probability, current_turn+1)
+        for turn in [turn for turn in FINAL_TURNS if turn != current_turn]:
+            accumulated_impact = 0.0
             for child in draw_tree.children:
-                new_Cs = [c-k for k,c in zip(Ks, Cs)]
-                yield from new_score_auxiliar(child, new_Cs, turn_probability)
-                draw_tree.expected_impact += child.probability * child.expected_impact
-            draw_tree.expected_impact = draw_tree.expected_impact / draw_tree.probability
+                try:
+                    accumulated_impact += child.probability * child.expected_impact[turn]
+                except KeyError:
+                    pass
+            draw_tree.expected_impact[turn] = accumulated_impact / draw_tree.probability
+        if len(draw_tree.children) > 0:
+            if abs(sum([child.probability for child in draw_tree.children]) - draw_tree.probability) > 1e-6:
+                raise NameError("Bad probabilities")
 
-def score_with_mulligan(draw_tree : DrawNode, mulligan_threshold = 0.0):
+                
+def score_with_mulligan(draw_tree : DrawNode, mulligan_threshold = 0.0, turn_weight = {}):
     accumulated_probability = 0.0
     accumulated_expected_impact = 0.0
-    for hand in draw_tree.children:
-        if hand.expected_impact > mulligan_threshold:
-            accumulated_expected_impact += hand.expected_impact * hand.probability
-            accumulated_probability += hand.probability
-    deck_expected_impact = accumulated_expected_impact / accumulated_probability
-    return deck_expected_impact, accumulated_probability
+    hands = [(hand.expected_impact, hand.probability) for hand in draw_tree.children if hand.probability > 0]
+    for hand in hands:
+        if len(hand[0]) != len(FINAL_TURNS):
+            raise NameError("Error")
+    hands.sort(key=lambda x: sum([x[0][turn] * turn_weight[turn] for turn in FINAL_TURNS]), reverse=True)
+    while accumulated_probability < (1- mulligan_threshold) and len(hands) > 0:
+        hand = hands.pop(0)
+        accumulated_expected_impact += sum([hand[0][turn] * turn_weight[turn] for turn in FINAL_TURNS]) * hand[1]
+        accumulated_probability += hand[1]
+    if accumulated_probability > 1e-10:
+        deck_expected_impact = accumulated_expected_impact / accumulated_probability
+    else:
+        deck_expected_impact = 0.0
+    return deck_expected_impact
 
 
 
 
 
 
-def joint_draws_sequences(draw_tree: DrawNode, drawing_sequence : List[List[int]] ,sequence_tree: Node):
-    if len(draw_tree.children) == 0:
+def joint_draws_sequences(draw_tree: DrawNode, drawing_sequence : List[List[int]],sequence_tree: Node, current_turn = -1):
+    for child in draw_tree.children:
+        yield from joint_draws_sequences(child, drawing_sequence + [draw_tree.draw], sequence_tree, current_turn + 1)
+        if child.best_sequence.impact > draw_tree.best_sequence.impact:
+            draw_tree.best_sequence = child.best_sequence
+    
+    if current_turn in FINAL_TURNS:
         try:
-            fist_valid = next(get_valid_sequences(drawing_sequence, [], sequence_tree))
+            fist_valid = next(get_valid_sequences(drawing_sequence + [draw_tree.draw], [], sequence_tree))
+            #get the first sequence that matches that draw
             draw_tree.best_sequence = fist_valid
         except StopIteration:
             draw_tree.best_sequence = Node([],[],0,[])
         yield draw_tree.best_sequence.impact
-        #get the first sequence that matches that draw
-    else:
-        best_sequence = Node([],[],0,[])
-        for child in draw_tree.children:
-            aux_drawing_sequence = copy.deepcopy(drawing_sequence)
-            aux_drawing_sequence.append(draw_tree.draw)
-            yield from joint_draws_sequences(child, aux_drawing_sequence, sequence_tree)
-            if child.best_sequence.impact > best_sequence.impact:
-                best_sequence = child.best_sequence
-        draw_tree.best_sequence = best_sequence
 
 def get_valid_sequences(drawing_sequence : List[List[int]], remaining_cards: List[int], sequence_tree : Node):
     # check that we fullfill the root with the drawn cards
@@ -401,20 +413,7 @@ def get_valid_sequences(drawing_sequence : List[List[int]], remaining_cards: Lis
             yield from get_valid_sequences(drawing_sequence[1:], available_cards, sequence_node)
 
     
-
-### Associate each node to a sequence
-number_of_leaf = 0
-number_of_positive_leaf = 0
-total_impact = 0
-print("Associating draws and sequences...")
-for leaf_impact in tqdm(joint_draws_sequences(draw_tree, [], sequence_tree)):
-    number_of_leaf +=1
-    total_impact += leaf_impact
-    if leaf_impact > 0:
-        number_of_positive_leaf += 1
-print(number_of_positive_leaf,"/",number_of_leaf," positive/total leaf. Avg impact:", total_impact/number_of_leaf)
-
-def hill_climbing(initial_combination, draw_node, mulligan_draw_node):
+def hill_climbing(initial_combination, draw_node):
     best_score = 0
     best_combination = initial_combination
     keep_exploring = True
@@ -429,8 +428,7 @@ def hill_climbing(initial_combination, draw_node, mulligan_draw_node):
             combination[j] += 1
             combination[i] -= 1
             if all([k >= DECK_MINIMUMS[index] for index,k in enumerate(combination)]):
-                mulligan_score = new_score(mulligan_draw_node, combination)
-                combination_score = new_score(draw_node, combination)
+                combination_score = new_score(draw_node, combination, MULLIGAN_THRESHOLD)
                 if combination_score > best_score:
                     last_direction = (i, j)
                     best_score = combination_score
@@ -447,6 +445,30 @@ print("Selected strategy", STRATEGY)
 if STRATEGY == Strategy.NOTHING:
     print("Nothing to do")
 else:
+    ### Generate draw tree
+    draw_tree = DrawNode()
+    print("Generating draw tree")
+    for initial_hand in tqdm(possible_initial_hands(INITIAL_HAND_SIZE,MAXIMUM_MANA_VALUE),
+                            total=len(list(possible_initial_hands(INITIAL_HAND_SIZE,MAXIMUM_MANA_VALUE)))):
+        draw = []
+        for index, repetitions in enumerate(initial_hand):
+            for _ in range(repetitions):
+                draw.append(index)
+        aux_node = DrawNode(draw, draw, [])
+        add_draws_to_node(aux_node, max(FINAL_TURNS)) # we do not draw in the fist turn
+        draw_tree.children.append(copy.deepcopy(aux_node))
+
+    ### Associate each node to a sequence
+    number_of_leaf = 0
+    number_of_positive_leaf = 0
+    total_impact = 0
+    print("Associating draws and sequences...")
+    for leaf_impact in tqdm(joint_draws_sequences(draw_tree, [], sequence_tree, -1)):
+        number_of_leaf +=1
+        total_impact += leaf_impact
+        if leaf_impact > 0:
+            number_of_positive_leaf += 1
+    print(number_of_positive_leaf,"/",number_of_leaf," positive/total leaf. Avg impact:", total_impact/number_of_leaf)
     with open('curves.csv', 'w', newline='') as csvfile:
         writer = csv.writer(csvfile, delimiter=";")
         best_score = 0.0
@@ -463,9 +485,6 @@ else:
                     best_combination = Ks
         elif STRATEGY == Strategy.HILL_CLIMBING:
             # initial solution and loop variables
-            initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
-            initial_combination[1] = DECK_SIZE
-            initial_combination = [25,7,6,6,6,6]
             for combination, combination_score in tqdm(hill_climbing(initial_combination, draw_tree)):
                 if combination_score > best_score:
                     #print("[HILL_CLIMBING] Better score found:", combination_score, combination)
@@ -503,7 +522,7 @@ else:
         total_probability = 0
         results = {}
         recover_sequence = {}
-        for probability, sequence_impact, sequence in new_score_auxiliar(draw_tree, best_combination, 1.0):
+        for probability, sequence_impact, sequence in new_score_auxiliar(draw_tree, best_combination, 1.0, -1):
             if not str(sequence) in results:
                 results[str(sequence)] = 0.0
                 recover_sequence[str(sequence)] = sequence
