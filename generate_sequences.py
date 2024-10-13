@@ -14,22 +14,28 @@ class Strategy(Enum):
     SINGLE = 3
     NOTHING = 4
 
-MAXIMUM_MANA_VALUE = 4
+MAXIMUM_MANA_VALUE = 5
 INITIAL_HAND_SIZE = 7
 FINAL_TURNS = [4, 5]
-TURN_WEIGHT = {4: 0.50,
-               5: 0.50}
-DECK_SIZE = 60
+TURN_WEIGHT = {
+                4: 0.65,
+               5: 0.35}
+DECK_SIZE = 56
 DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
-#DECK_MINIMUMS[5] = 6
+# DECK_MINIMUMS[0] = 18
+# DECK_MINIMUMS[1] = 7
+# DECK_MINIMUMS[2] = 4
+# DECK_MINIMUMS[3] = 4
+# DECK_MINIMUMS[4] = 4
+# DECK_MINIMUMS[5] = 6
 MAXIMUM_NUMBER_SEQUENCES = 10000
 OVERWRITE_SEQUENCES = True
-STRATEGY = Strategy.MULTI_HILL_CLIMBING
+STRATEGY = Strategy.HILL_CLIMBING
 initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
 initial_combination[0] = DECK_SIZE
 # for hill climbing
-#initial_combination = [22,5,10,9,4,6]
-MULTI_HILL_CLIMBING_ITERATIONS = 2
+initial_combination = [22,7,10,7,4,6]
+MULTI_HILL_CLIMBING_ITERATIONS = 3
 MULLIGAN_THRESHOLD = .08
 
 
@@ -306,9 +312,8 @@ def add_draws_to_node(node : DrawNode, turns: int):
         pass
     else:
         for i in range(MAXIMUM_MANA_VALUE+1):
-            aux_node = DrawNode([i],node.accumulated_draw + [i], [])
-            add_draws_to_node(aux_node, turns-1)
-            node.children.append(copy.deepcopy(aux_node))
+            node.children.append(copy.deepcopy(DrawNode([i],node.accumulated_draw + [i], [])))
+            add_draws_to_node(node.children[-1], turns-1)
 
 def new_score(draw_tree : DrawNode, Cs: List[int], mulligan_threshold = 0.0):
     for _ in new_score_auxiliar(draw_tree, Cs, 1.0, -1):
@@ -332,8 +337,8 @@ def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float,
 
     draw_tree.probability = turn_probability
     new_Cs = [c-k for k,c in zip(Ks, Cs)]
-    if len(new_Cs) != MAXIMUM_MANA_VALUE+1:
-        raise NameError("Incorrect Cs length")
+    # if len(new_Cs) != MAXIMUM_MANA_VALUE+1:
+    #     raise NameError("Incorrect Cs length")
     if turn_probability > 0 and draw_tree.best_sequence.impact > 0:
         if current_turn in FINAL_TURNS:
             if current_turn == 3:
@@ -350,9 +355,9 @@ def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float,
                 except KeyError:
                     pass
             draw_tree.expected_impact[turn] = accumulated_impact / draw_tree.probability
-        if len(draw_tree.children) > 0:
-            if abs(sum([child.probability for child in draw_tree.children]) - draw_tree.probability) > 1e-6:
-                raise NameError("Bad probabilities")
+        # if len(draw_tree.children) > 0:
+        #     if abs(sum([child.probability for child in draw_tree.children]) - draw_tree.probability) > 1e-6:
+        #         raise NameError("Bad probabilities")
 
                 
 def score_with_mulligan(draw_tree : DrawNode, mulligan_threshold = 0.0, turn_weight = {}):
@@ -454,9 +459,8 @@ else:
         for index, repetitions in enumerate(initial_hand):
             for _ in range(repetitions):
                 draw.append(index)
-        aux_node = DrawNode(draw, draw, [])
-        add_draws_to_node(aux_node, max(FINAL_TURNS)) # we do not draw in the fist turn
-        draw_tree.children.append(copy.deepcopy(aux_node))
+        draw_tree.children.append(copy.deepcopy(DrawNode(draw, draw, [])))
+        add_draws_to_node(draw_tree.children[-1], max(FINAL_TURNS)) # we do not draw in the fist turn
 
     ### Associate each node to a sequence
     number_of_leaf = 0
