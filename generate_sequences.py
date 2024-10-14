@@ -14,12 +14,12 @@ class Strategy(Enum):
     SINGLE = 3
     NOTHING = 4
 
-MAXIMUM_MANA_VALUE = 5
+MAXIMUM_MANA_VALUE = 4
 INITIAL_HAND_SIZE = 7
-FINAL_TURNS = [4, 5]
-TURN_WEIGHT = {
-                4: 0.65,
-               5: 0.35}
+FINAL_TURNS = [4, 5, 6]
+TURN_WEIGHT = {4: 0.55,
+               5: 0.30,
+               6: 0.15}
 DECK_SIZE = 56
 DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 # DECK_MINIMUMS[0] = 18
@@ -28,7 +28,7 @@ DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 # DECK_MINIMUMS[3] = 4
 # DECK_MINIMUMS[4] = 4
 # DECK_MINIMUMS[5] = 6
-MAXIMUM_NUMBER_SEQUENCES = 10000
+MAXIMUM_NUMBER_SEQUENCES = 100000
 OVERWRITE_SEQUENCES = True
 STRATEGY = Strategy.HILL_CLIMBING
 initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
@@ -341,10 +341,8 @@ def new_score_auxiliar(draw_tree : DrawNode, Cs: List[int], probability : float,
     #     raise NameError("Incorrect Cs length")
     if turn_probability > 0 and draw_tree.best_sequence.impact > 0:
         if current_turn in FINAL_TURNS:
-            if current_turn == 3:
-                pass
             draw_tree.expected_impact[current_turn] = draw_tree.best_sequence.impact
-            yield turn_probability, draw_tree.best_sequence.impact, draw_tree.best_sequence.sequence
+            yield turn_probability, draw_tree.best_sequence.impact, draw_tree.best_sequence.sequence, current_turn
         for child in draw_tree.children:
             yield from new_score_auxiliar(child, new_Cs, turn_probability, current_turn+1)
         for turn in [turn for turn in FINAL_TURNS if turn != current_turn]:
@@ -399,35 +397,43 @@ def joint_draws_sequences(draw_tree: DrawNode, drawing_sequence : List[List[int]
         yield draw_tree.best_sequence.impact
 
 def get_valid_sequences(drawing_sequence : List[List[int]], remaining_cards: List[int], sequence_tree : Node):
-    # check that we fullfill the root with the drawn cards
+    # check that we fulfill the root with the drawn cards
+    # if len(drawing_sequence) == 0:
+    #         raise IndexError
+    # The + operator concatenates two lists together. The operator will return a new list object.
     if len(drawing_sequence) == 0:
-            raise IndexError
-    available_cards = copy.deepcopy(remaining_cards + drawing_sequence[0])
+        # we are out of turns
+        available_cards = []
+    else:
+        available_cards = remaining_cards + drawing_sequence[0]
     valid = True
     for card in sequence_tree.turn:
         try:
             available_cards.remove(card)
         except ValueError:
             valid = False
+            
+    if len(drawing_sequence) > 1:
+        next_drawing_sequence = drawing_sequence[1:]
+    else:
+        next_drawing_sequence = []
     
     if valid:
         if len(sequence_tree.children) == 0:
-            #check that the sequence tree is empty
+            # we have a valid sequence
             yield sequence_tree
         for sequence_node in sequence_tree.children:
-            yield from get_valid_sequences(drawing_sequence[1:], available_cards, sequence_node)
+            # drawing sequence is not empty
+            yield from get_valid_sequences(next_drawing_sequence, available_cards, sequence_node)
 
     
 def hill_climbing(initial_combination, draw_node):
     best_score = 0
     best_combination = initial_combination
     keep_exploring = True
-    last_direction = (0, 1)
     while keep_exploring:
         keep_exploring = False
-        directions = [(i, j) for j in range(len(best_combination)) for i in range(len(best_combination)) if i!=j and (i, j) != last_direction]
-        random.shuffle(directions)
-        directions = [last_direction] + directions
+        directions = [(i, j) for j in range(len(best_combination)) for i in range(len(best_combination)) if i!=j]
         for (i, j) in tqdm(directions):
             combination = copy.deepcopy(best_combination)
             combination[j] += 1
@@ -435,7 +441,6 @@ def hill_climbing(initial_combination, draw_node):
             if all([k >= DECK_MINIMUMS[index] for index,k in enumerate(combination)]):
                 combination_score = new_score(draw_node, combination, MULLIGAN_THRESHOLD)
                 if combination_score > best_score:
-                    last_direction = (i, j)
                     best_score = combination_score
                     keep_exploring = True
                     new_best_combination = combination
@@ -467,7 +472,7 @@ else:
     number_of_positive_leaf = 0
     total_impact = 0
     print("Associating draws and sequences...")
-    for leaf_impact in tqdm(joint_draws_sequences(draw_tree, [], sequence_tree, -1)):
+    for leaf_impact in tqdm(joint_draws_sequences(draw_tree, [[]], sequence_tree, -1)):
         number_of_leaf +=1
         total_impact += leaf_impact
         if leaf_impact > 0:
@@ -526,7 +531,7 @@ else:
         total_probability = 0
         results = {}
         recover_sequence = {}
-        for probability, sequence_impact, sequence in new_score_auxiliar(draw_tree, best_combination, 1.0, -1):
+        for probability, _, sequence,  in new_score_auxiliar(draw_tree, best_combination, 1.0, -1):
             if not str(sequence) in results:
                 results[str(sequence)] = 0.0
                 recover_sequence[str(sequence)] = sequence
