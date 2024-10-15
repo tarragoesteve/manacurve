@@ -17,9 +17,11 @@ class Strategy(Enum):
 MAXIMUM_MANA_VALUE = 4
 INITIAL_HAND_SIZE = 7
 FINAL_TURNS = [4, 5, 6]
+
 TURN_WEIGHT = {4: 0.55,
                5: 0.30,
                6: 0.15}
+
 DECK_SIZE = 56
 DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 # DECK_MINIMUMS[0] = 18
@@ -30,7 +32,7 @@ DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 # DECK_MINIMUMS[5] = 6
 MAXIMUM_NUMBER_SEQUENCES = 100000
 OVERWRITE_SEQUENCES = True
-STRATEGY = Strategy.HILL_CLIMBING
+STRATEGY = Strategy.MULTI_HILL_CLIMBING
 initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
 initial_combination[0] = DECK_SIZE
 # for hill climbing
@@ -363,8 +365,10 @@ def score_with_mulligan(draw_tree : DrawNode, mulligan_threshold = 0.0, turn_wei
     accumulated_expected_impact = 0.0
     hands = [(hand.expected_impact, hand.probability) for hand in draw_tree.children if hand.probability > 0]
     for hand in hands:
-        if len(hand[0]) != len(FINAL_TURNS):
-            raise NameError("Error")
+        for turn in FINAL_TURNS:
+            if turn not in hand[0]:
+                hand[0][turn] = 0.0
+            #raise NameError("Error")
     hands.sort(key=lambda x: sum([x[0][turn] * turn_weight[turn] for turn in FINAL_TURNS]), reverse=True)
     while accumulated_probability < (1- mulligan_threshold) and len(hands) > 0:
         hand = hands.pop(0)
