@@ -14,31 +14,30 @@ class Strategy(Enum):
     SINGLE = 3
     NOTHING = 4
 
-MAXIMUM_MANA_VALUE = 4
+MAXIMUM_MANA_VALUE = 7
 INITIAL_HAND_SIZE = 7
-FINAL_TURNS = [4, 5, 6]
+FINAL_TURNS = [8]
 
-TURN_WEIGHT = {4: 0.55,
-               5: 0.30,
-               6: 0.15}
+TURN_WEIGHT = {8: 1}
 
-DECK_SIZE = 56
+DECK_SIZE = 40
 DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 # DECK_MINIMUMS[0] = 18
-# DECK_MINIMUMS[1] = 7
+# DECK_MINIMUMS[1] = 4
 # DECK_MINIMUMS[2] = 4
-# DECK_MINIMUMS[3] = 4
+# DECK_MINIMUMS[3] = 0
 # DECK_MINIMUMS[4] = 4
-# DECK_MINIMUMS[5] = 6
-MAXIMUM_NUMBER_SEQUENCES = 100000
+# DECK_MINIMUMS[5] = 2
+MAXIMUM_NUMBER_SEQUENCES = 1000
 OVERWRITE_SEQUENCES = True
-STRATEGY = Strategy.MULTI_HILL_CLIMBING
+MULLIGAN_THRESHOLD = .08
+STRATEGY = Strategy.NOTHING
+# for hill climbing
 initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
 initial_combination[0] = DECK_SIZE
-# for hill climbing
-initial_combination = [22,7,10,7,4,6]
+# initial_combination = [22,13,10,5,4,2]#22;8;10;6;4;6
+# for multi hill climbing
 MULTI_HILL_CLIMBING_ITERATIONS = 3
-MULLIGAN_THRESHOLD = .08
 
 
 # Impact Methods
@@ -248,7 +247,7 @@ if OVERWRITE_SEQUENCES:
     saved_combinations = {}
     possible = 0
     print("Exploring all possible sequences")
-    for sequence in tqdm(possible_sequences(0, 12.5)):
+    for sequence in tqdm(possible_sequences(50, 12.5)):
         possible += 1
         if sequence_impact(sequence) > 0:
             if str(sequence_without_lands(sequence)) not in saved_combinations:
@@ -364,11 +363,15 @@ def score_with_mulligan(draw_tree : DrawNode, mulligan_threshold = 0.0, turn_wei
     accumulated_probability = 0.0
     accumulated_expected_impact = 0.0
     hands = [(hand.expected_impact, hand.probability) for hand in draw_tree.children if hand.probability > 0]
+    fixed_hands = 0
     for hand in hands:
         for turn in FINAL_TURNS:
             if turn not in hand[0]:
                 hand[0][turn] = 0.0
+                fixed_hands += 1
             #raise NameError("Error")
+    if fixed_hands > 0:
+        print("Fixed hands", fixed_hands, "out of", len(hands))
     hands.sort(key=lambda x: sum([x[0][turn] * turn_weight[turn] for turn in FINAL_TURNS]), reverse=True)
     while accumulated_probability < (1- mulligan_threshold) and len(hands) > 0:
         hand = hands.pop(0)
@@ -476,7 +479,7 @@ else:
     number_of_positive_leaf = 0
     total_impact = 0
     print("Associating draws and sequences...")
-    for leaf_impact in tqdm(joint_draws_sequences(draw_tree, [[]], sequence_tree, -1)):
+    for leaf_impact in tqdm(joint_draws_sequences(draw_tree, [], sequence_tree, -1)):
         number_of_leaf +=1
         total_impact += leaf_impact
         if leaf_impact > 0:
@@ -535,7 +538,7 @@ else:
         total_probability = 0
         results = {}
         recover_sequence = {}
-        for probability, _, sequence,  in new_score_auxiliar(draw_tree, best_combination, 1.0, -1):
+        for probability, _, sequence, _  in new_score_auxiliar(draw_tree, best_combination, 1.0, -1):
             if not str(sequence) in results:
                 results[str(sequence)] = 0.0
                 recover_sequence[str(sequence)] = sequence
