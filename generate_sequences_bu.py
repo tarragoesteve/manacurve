@@ -14,13 +14,16 @@ class Strategy(Enum):
     SINGLE = 3
     NOTHING = 4
 
-MAXIMUM_MANA_VALUE = 7
+MAXIMUM_MANA_VALUE = 5
 INITIAL_HAND_SIZE = 7
-FINAL_TURNS = [8]
+FINAL_TURNS = [6]
 
-TURN_WEIGHT = {8: 1}
+TURN_WEIGHT = {
+                6 : 1
+              }
 
-DECK_SIZE = 40
+DECK_SIZE = 60
+
 DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 # DECK_MINIMUMS[0] = 18
 # DECK_MINIMUMS[1] = 4
@@ -28,10 +31,20 @@ DECK_MINIMUMS = [0] * (MAXIMUM_MANA_VALUE+1)
 # DECK_MINIMUMS[3] = 0
 # DECK_MINIMUMS[4] = 4
 # DECK_MINIMUMS[5] = 2
-MAXIMUM_NUMBER_SEQUENCES = 1000
-OVERWRITE_SEQUENCES = True
+
+MAXIMUM_NUMBER_SEQUENCES = 12000
+MAXIMUM_TURN_IMPACT = 12.5
+MINIMUM_SEQUENCE_IMPACT = {0: 0,
+                           3: 5,
+                           4: 11,
+                           5: 17,
+                           6: 25,
+                           7: 35,
+                           8: 45}
+
+OVERWRITE_SEQUENCES = False
 MULLIGAN_THRESHOLD = .08
-STRATEGY = Strategy.NOTHING
+STRATEGY = Strategy.MULTI_HILL_CLIMBING
 # for hill climbing
 initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
 initial_combination[0] = DECK_SIZE
@@ -71,7 +84,6 @@ def impact(mana_value: int) -> float:
     """
     if mana_value == 0:
         return 0
-    #return mana_value + 1.5
     if mana_value == 1:
         return mana_value + 1/0.95173
     elif mana_value == 2:
@@ -107,6 +119,11 @@ def possible_sequences(minimum_sequence_impact = 0.0, maximum_impact_in_turn = 1
     """Generates all possible sequences of turns"""
     yield from possible_sequences_auxiliar(0, 0, 0.0, minimum_sequence_impact, maximum_impact_in_turn, [], INITIAL_HAND_SIZE)
 
+def check(accumulated_impact: float, turn: int, remaining_cards: int):
+    guess = accumulated_impact
+    # guess += remaining_cards * impact(turn/2)
+    return guess > MINIMUM_SEQUENCE_IMPACT[turn]
+
 def possible_sequences_auxiliar(turn: int, landrops: int, accumulated_impact: float, minimum_sequence_impact: float, maximum_impact_in_turn: float,
                                 current_sequence: List[List[int]], remaining_cards: int):
     """Generates all possible sequences of turns
@@ -120,13 +137,13 @@ def possible_sequences_auxiliar(turn: int, landrops: int, accumulated_impact: fl
     Yields:
         List[List[int]]: sequence of turns
     """
-    if turn == max(FINAL_TURNS):
-        if accumulated_impact >= minimum_sequence_impact:
+    if turn in FINAL_TURNS:
+        if check(accumulated_impact, turn, remaining_cards):
             yield current_sequence
-    elif (max(FINAL_TURNS) - turn) * maximum_impact_in_turn + accumulated_impact < minimum_sequence_impact:
+    if (max(FINAL_TURNS) - turn) * maximum_impact_in_turn + accumulated_impact < minimum_sequence_impact[max(FINAL_TURNS)]:
         # we cannot reach the minimum impact
         pass
-    else:
+    elif turn < max(FINAL_TURNS):
         # case we do not play land
         for turn_sequence in possible_turn([], landrops, remaining_cards):
             yield from possible_sequences_auxiliar(turn + 1, landrops,
@@ -247,7 +264,7 @@ if OVERWRITE_SEQUENCES:
     saved_combinations = {}
     possible = 0
     print("Exploring all possible sequences")
-    for sequence in tqdm(possible_sequences(50, 12.5)):
+    for sequence in tqdm(possible_sequences(MINIMUM_SEQUENCE_IMPACT, MAXIMUM_TURN_IMPACT)):
         possible += 1
         if sequence_impact(sequence) > 0:
             if str(sequence_without_lands(sequence)) not in saved_combinations:
