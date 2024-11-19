@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 MAXIMUM_MANA_VALUE = 4
 INITIAL_HAND_SIZE = 7
-FINAL_TURNS = [4]
+FINAL_TURNS = [6]
 
 
 
@@ -34,7 +34,7 @@ class DrawTree():
             for index, repetitions in enumerate(initial_hand):
                 for _ in range(repetitions):
                     draw.append(index)
-            self.children.append(copy.deepcopy(DrawTree(draw)))
+            self.children.append(DrawTree(draw))
             add_draws_to_node(self.children[-1], max(FINAL_TURNS)) # we do not draw in the fist turn
 
     
@@ -110,5 +110,5 @@ def add_draws_to_node(node : DrawTree, turns: int):
         pass
     else:
         for i in range(MAXIMUM_MANA_VALUE+1):
-            node.children.append(copy.copy(DrawTree([i])))
+            node.children.append(DrawTree([i]))
             add_draws_to_node(node.children[-1], turns-1)
