@@ -4,26 +4,20 @@ import csv
 import copy
 from tqdm import tqdm
 import os.path
+from config import INITIAL_HAND_SIZE, MAXIMUM_MANA_VALUE, FINAL_TURN, MAXIMUM_NUMBER_OF_SEQUENCES
+
 
 
 class ExploreSequences:
     def __init__(self,
-                 interactive = False,
-                 maximum_number_of_sequences = 100000,
-                 initial_hand_size = 7, 
-                 maximum_mana_value = 5, 
-                 final_turn = 6) -> None:
-        self.maximum_number_of_sequences = maximum_number_of_sequences
-        self.initial_hand_size = initial_hand_size
-        self.final_turn = final_turn
-        self.maximum_mana_value = maximum_mana_value
+                 interactive = False) -> None:
         pass
 
 
     def possible_sequences(self):
         """Generates all possible sequences of turns"""
         yield from self.possible_sequences_auxiliary(0, 0, 0.0,
-                                                    [], self.initial_hand_size)
+                                                    [], INITIAL_HAND_SIZE)
 
     def possible_sequences_auxiliary(self, turn: int, landrops: int, accumulated_impact: float,
                                     current_sequence: List[List[int]], remaining_cards: int):
@@ -38,7 +32,7 @@ class ExploreSequences:
         Yields:
             List[List[int]]: sequence of turns
         """
-        if turn == self.final_turn:
+        if turn == FINAL_TURN:
                 yield current_sequence
         else:
             # case we do not play land
@@ -70,7 +64,7 @@ class ExploreSequences:
             if len(turn) > 0:
                 last_played = turn[-1]
                 last_played = max(1, last_played) # we cannot repeat landrops
-            for i in range(last_played, min(available_mana+1, self.maximum_mana_value+1)):
+            for i in range(last_played, min(available_mana+1, MAXIMUM_MANA_VALUE+1)):
                 yield from self.possible_turn(copy.deepcopy(turn + [i]), available_mana - i, remaining_cards - 1)
 
 
@@ -122,6 +116,6 @@ class ExploreSequences:
         sequence_score.sort(key=lambda x: x[0], reverse=True)
         with open(filename, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile, delimiter=";")
-            for i in range(min(len(sequence_score), self.maximum_number_of_sequences)):
+            for i in range(min(len(sequence_score), MAXIMUM_NUMBER_OF_SEQUENCES)):
                 writer.writerow([sequence_score[i][0]] + sequence_score[i][1])
      

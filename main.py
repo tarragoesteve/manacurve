@@ -2,6 +2,7 @@ print("Hello")
 from explore_sequences import ExploreSequences
 from sequence_tree import SequenceTree
 from draw_tree import DrawTree
+from optimizer import Optimizer
 
 es = ExploreSequences()
 es.save_to_file()
@@ -12,4 +13,6 @@ st.load_from_file()
 dt = DrawTree()
 dt.populate_tree()
 dt.set_sequence_tree(st)
+
+Optimizer.run(dt)
 

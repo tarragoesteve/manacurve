@@ -2,15 +2,7 @@ from typing import List
 from sequence_tree import SequenceTree
 import copy
 from tqdm import tqdm
-
-
-
-MAXIMUM_MANA_VALUE = 4
-INITIAL_HAND_SIZE = 7
-FINAL_TURNS = [6]
-
-
-
+from config import INITIAL_HAND_SIZE, MAXIMUM_MANA_VALUE, FINAL_TURN
 
 
 class DrawTree():
@@ -35,7 +27,7 @@ class DrawTree():
                 for _ in range(repetitions):
                     draw.append(index)
             self.children.append(DrawTree(draw))
-            add_draws_to_node(self.children[-1], max(FINAL_TURNS)) # we do not draw in the fist turn
+            add_draws_to_node(self.children[-1], FINAL_TURN)
 
     
     def set_sequence_tree(self, sequence_tree: SequenceTree):
@@ -59,7 +51,7 @@ def joint_draws_sequences(draw_tree: DrawTree, drawing_sequence : List[List[int]
         if child.impact > draw_tree.best_child_impact:
             draw_tree.best_child_impact = child.impact
     
-    if current_turn in FINAL_TURNS:
+    if len(draw_tree.children) == 0:
         try:
             fist_valid = next(get_valid_sequences(drawing_sequence + [draw_tree.draw], [], sequence_tree))
             #get the first sequence that matches that draw
@@ -106,7 +98,8 @@ def possible_initial_hands_aux(hand_size: int, maximum_mana_value: int, mana_val
             yield from possible_initial_hands_aux(hand_size-i, maximum_mana_value, mana_value+1, [i]+current_hand)
 
 def add_draws_to_node(node : DrawTree, turns: int):
-    if turns == 0:
+    if turns == 1:
+        # skipping the first turn
         pass
     else:
         for i in range(MAXIMUM_MANA_VALUE+1):
