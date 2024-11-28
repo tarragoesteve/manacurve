@@ -4,14 +4,12 @@ import copy
 from tqdm import tqdm
 import csv
 import random
-from config import MAXIMUM_MANA_VALUE, DECK_SIZE, DECK_MINIMUMS, STRATEGY, Strategy, MULLIGAN_THRESHOLD, MULTI_HILL_CLIMBING_ITERATIONS
+from config import MAXIMUM_MANA_VALUE, DECK_SIZE, DECK_MINIMUMS, STRATEGY, Strategy, MULLIGAN_THRESHOLD, MULTI_HILL_CLIMBING_ITERATIONS, INITIAL_COMBINATION
 from draw_tree import DrawTree
 from deck_probability import DeckProbability
 
 
-# for hill climbing
-initial_combination = [0] * (MAXIMUM_MANA_VALUE+1)
-initial_combination[0] = DECK_SIZE
+
 
 
 class Optimizer():
@@ -63,9 +61,8 @@ class Optimizer():
                             best_combination = Ks
                 elif STRATEGY == Strategy.HILL_CLIMBING:
                     # initial solution and loop variables
-                    for combination, combination_score in tqdm(Optimizer.hill_climbing(initial_combination, draw_tree)):
+                    for combination, combination_score in tqdm(Optimizer.hill_climbing(INITIAL_COMBINATION, draw_tree)):
                         if combination_score > best_score:
-                            #print("[HILL_CLIMBING] Better score found:", combination_score, combination)
                             best_score = combination_score
                             best_combination = combination
                             writer.writerow([combination_score] + combination)
@@ -77,34 +74,33 @@ class Optimizer():
                         selected = random.choice(possible_combinations)
                         Ks = [sum(1 for j in selected if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
                         for combination, combination_score in tqdm(Optimizer.hill_climbing(Ks, draw_tree)):
+                            writer.writerow([combination_score]+ combination)
+                            csvfile.flush()
                             if combination_score > best_score:
                                 #print("[MULTI_HILL_CLIMBING] Better score found:", combination_score, combination)
                                 best_score = combination_score
                                 best_combination = combination
-                                writer.writerow([combination_score]+ combination)
-                                csvfile.flush()
                             if str(combination) not in cached_combinations:
                                 cached_combinations[str(combination)] = combination_score
                             else:
                                 print("Stopping iteration, we arrived at", combination)
                                 break
                 elif STRATEGY == Strategy.SINGLE:
-                    combination = [30, 10,10,10]
-                    combination_score = DeckProbability.score(draw_tree, combination, MULLIGAN_THRESHOLD)
+                    combination_score = DeckProbability.score(draw_tree, INITIAL_COMBINATION, MULLIGAN_THRESHOLD)
                     print("Combination score", combination_score)
-                    best_combination = combination
+                    best_combination = INITIAL_COMBINATION
             with open(results_file, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile, delimiter=";")
                 total_probability = 0
                 results = {}
                 recover_sequence = {}
-                for probability, _, sequence, _  in DeckProbability.recursive_tree_probability(draw_tree, best_combination, 1.0, -1):
-                    if not str(sequence) in results:
-                        results[str(sequence)] = 0.0
-                        recover_sequence[str(sequence)] = sequence
-                    results[str(sequence)] += probability
-                    total_probability += probability
-                for sequence_str, probability in results.items():
-                    writer.writerow([round(probability,8)] + recover_sequence[sequence_str])
+                # for probability, sequence   in DeckProbability.recursive_tree_probability(draw_tree, best_combination, 1.0):
+                #     if not str(sequence) in results:
+                #         results[str(sequence)] = 0.0
+                #         recover_sequence[str(sequence)] = sequence
+                #     results[str(sequence)] += probability
+                #     total_probability += probability
+                # for sequence_str, probability in results.items():
+                #     writer.writerow([round(probability,8)] + recover_sequence[sequence_str])
                 print("Total probability", total_probability)
 

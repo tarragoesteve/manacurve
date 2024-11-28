@@ -48,14 +48,15 @@ class DrawTree():
 def joint_draws_sequences(draw_tree: DrawTree, drawing_sequence : List[List[int]], sequence_tree: SequenceTree, current_turn = -1):
     for child in draw_tree.children:
         yield from joint_draws_sequences(child, drawing_sequence + [draw_tree.draw], sequence_tree, current_turn + 1)
-        if child.impact > draw_tree.best_child_impact:
-            draw_tree.best_child_impact = child.impact
+        if child.best_child_impact > draw_tree.best_child_impact:
+            draw_tree.best_child_impact = child.best_child_impact
     
     if len(draw_tree.children) == 0:
         try:
             fist_valid = next(get_valid_sequences(drawing_sequence + [draw_tree.draw], [], sequence_tree))
             #get the first sequence that matches that draw
             draw_tree.impact = fist_valid.impact
+            draw_tree.best_child_impact = fist_valid.impact
         except StopIteration:
             draw_tree.impact = 0
         yield draw_tree.impact
