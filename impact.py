@@ -4,10 +4,12 @@ class Impact:
     def __init__(self) -> None:
         pass
 
+    card_on_curve_probability = [1, 0.95, 0.82, 0.64, 0.44, 0.27, 0.15, 0.08]
     @staticmethod
     def card_impact(mana_value: int, turn: int = 0) -> float:
         if mana_value == 0:
             return 0
+        return mana_value + 1 + 1-Impact.card_on_curve_probability[mana_value]
         if mana_value == 1:
             return mana_value + 1/0.95173
         elif mana_value == 2:
