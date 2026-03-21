@@ -14,7 +14,7 @@
 
 	// Mount the host's git config so the container uses the same identity.
 	"mounts": [
-		"source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
+		"source=${localEnv:USERPROFILE}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
 	],
   "customizations": {
     "vscode": {
