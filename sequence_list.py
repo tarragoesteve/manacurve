@@ -1,6 +1,6 @@
 from typing import List
 from tqdm import tqdm
-import copy
+from config import MAXIMUM_NUMBER_OF_SEQUENCES
 import csv
 
 class SequenceList():
@@ -13,6 +13,8 @@ class SequenceList():
         with open(filename, newline='') as csvfile:
             reader = csv.reader(csvfile, delimiter=";")  
             for row in tqdm(reader):
+                if len(self.sequences) >= MAXIMUM_NUMBER_OF_SEQUENCES:
+                    break
                 sequence = []
                 impact = float(row[0])
                 for turn_string in row[1:]:

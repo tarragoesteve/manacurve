@@ -23,6 +23,7 @@ class Optimizer():
         keep_exploring = True
         while keep_exploring:
             keep_exploring = False
+            # TODO: Use config MAXIMUM_MANA_VALUE instead of len(best_combination)
             directions = [(i, j) for j in range(len(best_combination)) for i in range(len(best_combination)) if i!=j]
             for (i, j) in tqdm(directions):
                 combination = copy.deepcopy(best_combination)
@@ -69,6 +70,7 @@ class Optimizer():
                             csvfile.flush()
                 elif STRATEGY == Strategy.MULTI_HILL_CLIMBING:
                     cached_combinations = {}
+                    # TODO: This could be memory expensive
                     possible_combinations = list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))
                     for _ in tqdm(range(MULTI_HILL_CLIMBING_ITERATIONS)):
                         selected = random.choice(possible_combinations)

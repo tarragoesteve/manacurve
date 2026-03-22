@@ -52,9 +52,9 @@ class RootTree(CommonTree):
         has_any_successful_child = False
         for i in range(MAXIMUM_MANA_VALUE+1):
             child = self.get_child_with_draw(parent_tree, i)
-            if child is None:
+            is_new = child is None
+            if is_new:
                 child = DrawTree(i)
-                parent_tree.children.append(child)
 
             # Draw card i first, then check if we can play this turn
             child_available_cards = list(available_cards)
@@ -71,6 +71,8 @@ class RootTree(CommonTree):
                 if len(child.children) == 0:
                     child.impact = max(child.impact, impact)
                 child.best_child_impact = max(child.best_child_impact, impact)
+                if is_new:
+                    parent_tree.children.append(child)
                 has_any_successful_child = True
         return has_any_successful_child
 
@@ -94,7 +96,7 @@ class DrawTree(CommonTree):
         self.draw: int = draw
         self.impact: float = impact
 
-
+    # TODO: Deprecate this method
     def populate_tree(self):
         print("Generating draw tree")
         for initial_hand in tqdm(possible_initial_hands(INITIAL_HAND_SIZE,MAXIMUM_MANA_VALUE),
@@ -106,7 +108,7 @@ class DrawTree(CommonTree):
             self.children.append(DrawTree(draw))
             add_draws_to_node(self.children[-1], FINAL_TURN)
 
-    
+    # TODO: Deprecate this method
     def set_sequence_tree(self, sequence_tree: SequenceList):
         ### Associate each node to a sequence
         number_of_leaf = 0
@@ -174,7 +176,7 @@ def possible_initial_hands_aux(hand_size: int, maximum_mana_value: int, mana_val
     else:
         for i in range(hand_size+1):
             yield from possible_initial_hands_aux(hand_size-i, maximum_mana_value, mana_value+1, [i]+current_hand)
-
+# TODO: Deprecate this method
 def add_draws_to_node(node : DrawTree, turns: int):
     if turns == 1:
         # skipping the first turn
