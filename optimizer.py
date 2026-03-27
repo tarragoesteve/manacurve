@@ -70,11 +70,8 @@ class Optimizer():
                             csvfile.flush()
                 elif STRATEGY == Strategy.MULTI_HILL_CLIMBING:
                     cached_combinations = {}
-                    # TODO: This could be memory expensive
-                    possible_combinations = list(combinations_with_replacement(range(MAXIMUM_MANA_VALUE+1), DECK_SIZE))
                     for _ in tqdm(range(MULTI_HILL_CLIMBING_ITERATIONS)):
-                        selected = random.choice(possible_combinations)
-                        Ks = [sum(1 for j in selected if j == i) for i in range(MAXIMUM_MANA_VALUE+1)]
+                        Ks = Optimizer.get_random_deck()
                         for combination, combination_score in tqdm(Optimizer.hill_climbing(Ks, root_tree)):
                             writer.writerow([combination_score]+ combination)
                             csvfile.flush()
@@ -92,4 +89,11 @@ class Optimizer():
                     print("Combination score", combination_score)
                     best_combination = INITIAL_COMBINATION
             print("Best score:", best_score, "Best combination:", best_combination)
-
+    
+    @staticmethod
+    def get_random_deck():
+        deck = [0] * (MAXIMUM_MANA_VALUE+1)
+        while sum(deck) < DECK_SIZE:
+            card = random.randint(0, MAXIMUM_MANA_VALUE)
+            deck[card] += 1
+        return deck
