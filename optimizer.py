@@ -22,6 +22,25 @@ class Optimizer():
                    for w, tree in weighted_trees)
 
     @staticmethod
+    def _score_breakdown(weighted_trees: List[Tuple[float, RootTree]], combination: List[int]):
+        """Returns list of (turn, weight, raw_score, weighted_score) for each tree."""
+        rows = []
+        for w, tree in weighted_trees:
+            raw = DeckProbability.score(tree, combination, MULLIGAN_THRESHOLD)
+            rows.append((tree.turn, w, raw, w * raw))
+        return rows
+
+    @staticmethod
+    def _print_breakdown(weighted_trees: List[Tuple[float, RootTree]], combination: List[int]):
+        total = 0.0
+        print(f"  {'Turn':>6}  {'Weight':>8}  {'Score':>10}  {'Contribution':>13}")
+        print(f"  {'----':>6}  {'------':>8}  {'-----':>10}  {'------------':>13}")
+        for turn, w, raw, contrib in Optimizer._score_breakdown(weighted_trees, combination):
+            total += contrib
+            print(f"  {turn:>6}  {w:>8.3f}  {raw:>10.4f}  {contrib:>13.4f}")
+        print(f"  {'':>6}  {'':>8}  {'Total:':>10}  {total:>13.4f}")
+
+    @staticmethod
     def hill_climbing(initial_combination: List[int], weighted_trees: List[Tuple[float, RootTree]]):
         best_score = 0
         best_combination = initial_combination
@@ -94,6 +113,9 @@ class Optimizer():
                     print("Combination score", combination_score)
                     best_combination = INITIAL_COMBINATION
             print("Best score:", best_score, "Best combination:", best_combination)
+            if best_combination:
+                print("\nPer-turn score breakdown for best combination:")
+                Optimizer._print_breakdown(weighted_trees, best_combination)
     
     @staticmethod
     def get_random_deck():
