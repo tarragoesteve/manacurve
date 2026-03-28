@@ -7,7 +7,8 @@ __pycache__/
 *.so
 
 #
-*.csv
+curves.csv
+results.csv
 
 
 # Distribution / packaging

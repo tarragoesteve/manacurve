@@ -1,9 +1,18 @@
 from enum import Enum
 
 INITIAL_HAND_SIZE = 7
-MAXIMUM_MANA_VALUE = 4
-FINAL_TURN = 4
-DECK_SIZE = 40
+MAXIMUM_MANA_VALUE = 5
+FINAL_TURN = 5
+DECK_SIZE = 60
+
+# List of turns to optimize and their relative weights in the combined objective.
+# Lengths must match. Weights do not need to be normalized.
+TURNS = [3, 4, 5]
+TURN_WEIGHTS = [1.0, 1.0, 1.0]
+
+# Folders for generated data files
+SEQUENCES_DIR = 'sequences'
+TREES_DIR = 'trees'
 
 MAXIMUM_NUMBER_OF_SEQUENCES = 10000
 MULLIGAN_THRESHOLD = 0.0

@@ -1,8 +1,10 @@
 from typing import List
 from sequence_list import SequenceList
 import copy
+import json
+import os
 from tqdm import tqdm
-from config import INITIAL_HAND_SIZE, MAXIMUM_MANA_VALUE, FINAL_TURN
+from config import INITIAL_HAND_SIZE, MAXIMUM_MANA_VALUE, FINAL_TURN, TREES_DIR
 
 class CommonTree():
     def __init__(self):
@@ -13,8 +15,9 @@ class CommonTree():
         self.best_child_impact = 0.0
 
 class RootTree(CommonTree):
-    def __init__(self):
+    def __init__(self, turn: int = FINAL_TURN):
         super().__init__()
+        self.turn = turn
         initial_hands = list(possible_initial_hands(INITIAL_HAND_SIZE,MAXIMUM_MANA_VALUE))
         for hand in tqdm(initial_hands):
             self.children.append(InitialHand(hand))
@@ -82,6 +85,88 @@ class RootTree(CommonTree):
             if isinstance(child, DrawTree) and child.draw == draw:
                 return child
         return None
+
+    # ------------------------------------------------------------------ #
+    # Serialization                                                        #
+    # ------------------------------------------------------------------ #
+
+    def to_dict(self) -> dict:
+        return {
+            "turn": self.turn,
+            "children": [RootTree._initial_hand_to_dict(h) for h in self.children],
+        }
+
+    @staticmethod
+    def _initial_hand_to_dict(hand: 'InitialHand') -> dict:
+        return {
+            "available_cards": hand.available_cards,
+            "best_child_impact": hand.best_child_impact,
+            "children": [RootTree._draw_tree_to_dict(c) for c in hand.children],
+        }
+
+    @staticmethod
+    def _draw_tree_to_dict(node: 'DrawTree') -> dict:
+        return {
+            "draw": node.draw,
+            "impact": node.impact,
+            "best_child_impact": node.best_child_impact,
+            "children": [RootTree._draw_tree_to_dict(c) for c in node.children],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'RootTree':
+        rt = cls.__new__(cls)
+        CommonTree.__init__(rt)
+        rt.turn = data["turn"]
+        rt.children = [cls._initial_hand_from_dict(h) for h in data["children"]]
+        return rt
+
+    @staticmethod
+    def _initial_hand_from_dict(data: dict) -> 'InitialHand':
+        hand = InitialHand.__new__(InitialHand)
+        CommonTree.__init__(hand)
+        hand.available_cards = data["available_cards"]
+        hand.best_child_impact = data["best_child_impact"]
+        hand.children = [RootTree._draw_tree_from_dict(c) for c in data["children"]]
+        return hand
+
+    @staticmethod
+    def _draw_tree_from_dict(data: dict) -> 'DrawTree':
+        node = DrawTree.__new__(DrawTree)
+        CommonTree.__init__(node)
+        node.draw = data["draw"]
+        node.impact = data["impact"]
+        node.best_child_impact = data["best_child_impact"]
+        node.children = [RootTree._draw_tree_from_dict(c) for c in data["children"]]
+        return node
+
+    def save_to_file(self, path: str = None):
+        if path is None:
+            path = f'{TREES_DIR}/tree_turn_{self.turn}.json'
+        print(f"Saving tree to {path}...")
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f)
+
+    @classmethod
+    def load_from_file(cls, turn: int, path: str = None) -> 'RootTree':
+        if path is None:
+            path = f'{TREES_DIR}/tree_turn_{turn}.json'
+        print(f"  Loading tree from {path}...", end=' ', flush=True)
+        with open(path, 'r') as f:
+            data = json.load(f)
+        rt = cls.from_dict(data)
+        print(f"({len(rt.children)} initial hands)")
+        return rt
+
+    @classmethod
+    def load_or_build(cls, turn: int, sequence_list: SequenceList) -> 'RootTree':
+        path = f'{TREES_DIR}/tree_turn_{turn}.json'
+        if os.path.isfile(path):
+            return cls.load_from_file(turn, path)
+        rt = cls(turn=turn)
+        rt.populate_tree(sequence_list)
+        rt.save_to_file(path)
+        return rt
 
 
 class InitialHand(CommonTree):

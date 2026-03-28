@@ -1,17 +1,18 @@
-from typing import List
+from typing import List, Dict, Set
 from impact import Impact
 import csv
 import copy
 from tqdm import tqdm
 import os.path
-from config import INITIAL_HAND_SIZE, MAXIMUM_MANA_VALUE, FINAL_TURN, MAXIMUM_NUMBER_OF_SEQUENCES
+from config import INITIAL_HAND_SIZE, MAXIMUM_MANA_VALUE, FINAL_TURN, MAXIMUM_NUMBER_OF_SEQUENCES, SEQUENCES_DIR
 
 
 
 class ExploreSequences:
     def __init__(self,
+                 turn: int = FINAL_TURN,
                  interactive = False) -> None:
-        pass
+        self.turn = turn
 
 
     def possible_sequences(self):
@@ -32,7 +33,7 @@ class ExploreSequences:
         Yields:
             List[List[int]]: sequence of turns
         """
-        if turn == FINAL_TURN:
+        if turn == self.turn:
                 yield current_sequence
         else:
             # case we do not play land
@@ -84,7 +85,75 @@ class ExploreSequences:
             ret.append([i for i in turn if i != 0])
         return ret
     
-    def save_to_file(self, filename = 'sequences.csv'):
+    def _explore_multi_aux(self, turn: int, landrops: int,
+                           current_sequence: List[List[int]], remaining_cards: int,
+                           turns_set: Set[int], max_turn: int):
+        """Single-pass traversal that yields (turn_depth, sequence) at each depth in turns_set.
+        Continues beyond yield points until max_turn is reached."""
+        if turn in turns_set:
+            yield turn, copy.deepcopy(current_sequence)
+        if turn == max_turn:
+            return
+        # case we do not play land
+        for turn_sequence in self.possible_turn([], landrops, remaining_cards):
+            yield from self._explore_multi_aux(
+                turn + 1, landrops,
+                current_sequence + [turn_sequence],
+                remaining_cards + 1 - len(turn_sequence),
+                turns_set, max_turn)
+        # case we play a land
+        for turn_sequence in self.possible_turn([0], landrops + 1, remaining_cards - 1):
+            yield from self._explore_multi_aux(
+                turn + 1, landrops + 1,
+                current_sequence + [turn_sequence],
+                remaining_cards + 1 - len(turn_sequence),
+                turns_set, max_turn)
+
+    def save_for_turns(self, turns: List[int]):
+        """Single-pass exploration that saves sequences_turn_{N}.csv for each turn in turns.
+        Skips turns whose file already exists."""
+        turns_needed = [t for t in turns if not os.path.isfile(f'{SEQUENCES_DIR}/sequences_turn_{t}.csv')]
+        if not turns_needed:
+            print("All sequence files already exist, skipping exploration.")
+            return
+        max_turn = max(turns_needed)
+        turns_set = set(turns_needed)
+        # One dedup dict per turn depth
+        saved: Dict[int, dict] = {t: {} for t in turns_needed}
+        print(f"Exploring sequences for turns {sorted(turns_needed)} (single pass to turn {max_turn})...")
+        for depth, sequence in tqdm(self._explore_multi_aux(
+                0, 0, [], INITIAL_HAND_SIZE, turns_set, max_turn)):
+            if Impact.sequence_impact(sequence) <= 0:
+                continue
+            key = str(self.sequence_without_lands(sequence))
+            existing = saved[depth].get(key)
+            if existing is None:
+                saved[depth][key] = sequence
+            else:
+                if len(sequence) < len(existing):
+                    saved[depth][key] = sequence
+                elif len(sequence) == len(existing):
+                    for turn_a, turn_b in zip(sequence, existing):
+                        if len(turn_a) < len(turn_b):
+                            saved[depth][key] = sequence
+                            break
+                        elif len(turn_a) > len(turn_b):
+                            break
+        for t in turns_needed:
+            combos = saved[t]
+            print(f"Turn {t}: {len(combos)} non-redundant sequences")
+            sequence_score = [(Impact.sequence_impact(seq), seq) for seq in combos.values()]
+            sequence_score.sort(key=lambda x: x[0], reverse=True)
+            filename = f'{SEQUENCES_DIR}/sequences_turn_{t}.csv'
+            with open(filename, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=";")
+                for i in range(min(len(sequence_score), MAXIMUM_NUMBER_OF_SEQUENCES)):
+                    writer.writerow([sequence_score[i][0]] + sequence_score[i][1])
+            print(f"Saved {filename}")
+
+    def save_to_file(self, filename = None):
+        if filename is None:
+            filename = f'{SEQUENCES_DIR}/sequences_turn_{self.turn}.csv'
         if os.path.isfile(filename):
             input_text = input(filename + " already exist, are you sure you want to overwrite? (y/n)")
             if input_text != 'y':
