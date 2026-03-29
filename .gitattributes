@@ -1,1 +1,4 @@
 * text=auto
+
+sequences/** filter=lfs diff=lfs merge=lfs -text
+trees/** filter=lfs diff=lfs merge=lfs -text

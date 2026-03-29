@@ -1,7 +1,14 @@
 {
   "name": "manacurve",
-  "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "postCreateCommand": "pip install -r requirements.txt",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "http_proxy": "${localEnv:http_proxy}",
+      "https_proxy": "${localEnv:https_proxy}",
+      "no_proxy": "${localEnv:no_proxy}"
+    }
+  },
+  "postCreateCommand": "git lfs install && pip install -r requirements.txt",
   	// Forward corporate proxy settings from the host into the container.
 	"containerEnv": {
 		"http_proxy": "${localEnv:http_proxy}",
@@ -13,8 +20,9 @@
 	},
 
 	// Mount the host's git config so the container uses the same identity.
+	// Use HOME (Linux/macOS) with fallback to USERPROFILE (Windows).
 	"mounts": [
-		"source=${localEnv:USERPROFILE}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
+		"source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
 	],
   "customizations": {
     "vscode": {

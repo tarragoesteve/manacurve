@@ -1,4 +1,4 @@
-print("Hello")
+print("Welcome to ManaCurveOptimizer! This tool explores possible opening sequences in a card game, builds draw trees for specified turns, and optimizes the best sequence across those turns based on assigned weights.\n")
 from explore_sequences import ExploreSequences
 from sequence_list import SequenceList
 from draw_tree import RootTree

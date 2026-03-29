@@ -7,13 +7,16 @@ class DeckProbability:
     @staticmethod
     def score(root_tree: RootTree, Cs: List[int], mulligan_threshold=0.0):
         for initial_hand in root_tree.children:
-            hand_probability = multivariate_hypergeom.pmf(
-                x=initial_hand.available_cards, m=Cs, n=sum(initial_hand.available_cards)
-            )
+            # Pad available_cards with zeros if the tree was built with fewer
+            # mana buckets than the current combination (untracked buckets = 0).
+            x = list(initial_hand.available_cards) + [0] * max(0, len(Cs) - len(initial_hand.available_cards))
+            x = x[:len(Cs)]  # truncate if tree somehow has more buckets, shouldn't happen
+
+            hand_probability = multivariate_hypergeom.pmf(x=x, m=Cs, n=sum(x))
             initial_hand.probability = hand_probability
 
             if hand_probability > 0:
-                remaining_Cs = [c - k for c, k in zip(Cs, initial_hand.available_cards)]
+                remaining_Cs = [c - k for c, k in zip(Cs, x)]
                 for child in initial_hand.children:
                     DeckProbability._recursive_probability(child, remaining_Cs, hand_probability)
                 initial_hand.expected_impact = sum(
